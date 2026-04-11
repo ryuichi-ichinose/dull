@@ -53,7 +53,7 @@ impl ContainerEngine for BuildahEngine {
         Ok(())
     }
 
-    fn build(&self, root: &Path, name: &str, profile: &ImageProfile, tag: &str) -> Result<String> {
+    fn build(&self, root: &Path, name: &str, profile: &ImageProfile, tag: &str) -> Result<(String, String)> {
         println!("Building: {} ({})", name, profile.path);
 
         let local_ref = format!("localhost/{}:{}", name, tag);
@@ -87,7 +87,7 @@ impl ContainerEngine for BuildahEngine {
         let _ = fs::remove_file(&iid_path);
         println!("Built Digest: {}", digest);
 
-        Ok(digest)
+        Ok((digest, local_ref))
     }
 
     fn push(

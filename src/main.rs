@@ -1,12 +1,16 @@
 mod engine; // モジュールを読み込む
 
-use anyhow::{Context, Result, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
+use petgraph::algo::toposort;
+use petgraph::graph::DiGraph;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use walkdir::WalkDir;
 
 use crate::engine::{BuildahEngine, ContainerEngine, ImageProfile};
@@ -19,9 +23,6 @@ pub struct DeckConfig {
 }
 
 impl DeckConfig {
-    fn get_ordered_targets(&self) -> Vec<(&String, &ImageProfile)> {
-        self.images.iter().collect()
-    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -33,9 +34,15 @@ pub struct ProjectConfig {
 
 
 
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct LockImageProfile {
+    pub digest: String,
+    pub local_ref: String,
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct DeckLock {
-    pub images: BTreeMap<String, String>,
+    pub images: BTreeMap<String, LockImageProfile>,
 }
 
 #[derive(Parser)]
@@ -63,14 +70,14 @@ enum Commands {
         action: RegistryAction,
     },
     Build {
-        #[arg(short,long, conflicts_with = "images")]
+        #[arg(short, long, conflicts_with = "images")]
         all: bool,
         #[arg(num_args = 1..)]
         images: Vec<String>,
         #[arg(long)]
         no_lock: bool,
-        #[arg(long, default_value = "latest")]
-        tag: String,
+        #[arg(long)]
+        tag: Option<String>,
     },
     Push {
         #[arg(short,long, conflicts_with = "images")]
@@ -156,36 +163,181 @@ fn run_registry(action: &RegistryAction) -> Result<()> {
     Ok(())
 }
 
-fn run_build(engine: &impl ContainerEngine, all: bool, images: &[String], no_lock: bool, local_tag: &str) -> Result<()> {
+fn run_build(
+    engine: &(impl ContainerEngine + Sync),
+    all: bool,
+    images: &[String],
+    no_lock: bool,
+    tag: &Option<String>,
+) -> Result<()> {
     let (root, config) = load_context()?;
-    
-    let mut lock_data = if !no_lock { 
-        load_lock(&root).unwrap_or_default() 
-    } else { 
-        DeckLock::default() 
-    };
 
-    let targets = if all { 
-        config.get_ordered_targets() 
+    // 1. Determine Target Nodes
+    let targets_to_build: BTreeSet<String> = if all {
+        config.images.keys().cloned().collect()
     } else {
-        if images.is_empty() { bail!("Specify image names or --all"); }
-        images.iter()
-            .filter_map(|n| config.images.get_key_value(n).map(|(k, v)| (k, v)))
-            .collect()
+        if images.is_empty() {
+            bail!("Specify image names or use --all");
+        }
+        images.iter().cloned().collect()
     };
 
-    println!("🚀 Building {} targets...", targets.len());
-
-    for (name, profile) in targets {
-        let digest = engine.build(&root, name, profile, local_tag)?;
-        lock_data.images.insert(name.clone(), digest);
+    // 2. Build Full Dependency Graph
+    let mut graph = DiGraph::<String, ()>::new();
+    let mut node_map = HashMap::new();
+    for name in config.images.keys() {
+        let index = graph.add_node(name.clone());
+        node_map.insert(name.clone(), index);
     }
 
+    for (name, profile) in &config.images {
+        let to_index = node_map[name];
+        for dep in &profile.depends_on {
+            if let Some(&from_index) = node_map.get(dep) {
+                graph.add_edge(from_index, to_index, ());
+            } else {
+                bail!("Image '{}' depends on '{}', which is not defined.", name, dep);
+            }
+        }
+    }
+
+    // 3. Resolve all dependencies for the selected targets
+    let mut build_selection = BTreeSet::new();
+    let mut reversed_graph = graph.clone();
+    reversed_graph.reverse();
+
+    for target_name in &targets_to_build {
+        if !node_map.contains_key(target_name) {
+            bail!("Image '{}' not found in deck.toml", target_name);
+        }
+        let start_node = node_map[target_name];
+
+        // Traverse upwards (dependencies) in the original graph
+        // by traversing downwards in the reversed graph.
+        let mut dfs = petgraph::visit::Dfs::new(&reversed_graph, start_node);
+        while let Some(nx) = dfs.next(&reversed_graph) {
+            build_selection.insert(graph[nx].clone());
+        }
+    }
+
+
+    // 4. Topologically Sort the Graph of all dependencies
+    let sorted_nodes = match toposort(&graph, None) {
+        Ok(nodes) => nodes,
+        Err(cycle) => bail!(
+            "Circular dependency detected! Cycle includes: {}",
+            graph[cycle.node_id()].clone()
+        ),
+    };
+
+    // Filter the sorted list to only include the nodes we need to build
+    let build_plan: Vec<String> = sorted_nodes
+        .into_iter()
+        .map(|node_index| graph[node_index].clone())
+        .filter(|name| build_selection.contains(name))
+        .collect();
+
+    if build_plan.is_empty() {
+        println!("No images to build.");
+        return Ok(());
+    }
+
+    // 5. Execute Build Plan
+    println!("🚀 Build plan ({} targets):", build_plan.len());
+    for (i, name) in build_plan.iter().enumerate() {
+        println!("   {}. {}", i + 1, name);
+    }
+    println!();
+
+
+    let new_locks = Mutex::new(BTreeMap::new());
+    let build_errors = Mutex::new(Vec::new());
+
+    let mut staged_plan: Vec<Vec<String>> = Vec::new();
+    let mut built_nodes = BTreeSet::new();
+
+    let mut plan_clone = build_plan.clone();
+    while !plan_clone.is_empty() {
+        let mut current_stage = Vec::new();
+        let mut next_plan = Vec::new();
+
+        for name in plan_clone {
+            let profile = &config.images[&name];
+            let all_deps_built = profile.depends_on.iter().all(|dep| built_nodes.contains(dep));
+
+            if all_deps_built {
+                current_stage.push(name.clone());
+            } else {
+                next_plan.push(name.clone());
+            }
+        }
+
+        if current_stage.is_empty() && !next_plan.is_empty() {
+            // This case should not be reached if toposort is correct
+            return Err(anyhow!("Failed to create build stages. Check for logical error in dependency resolution."));
+        }
+        
+        staged_plan.push(current_stage);
+        for name in staged_plan.last().unwrap() {
+            built_nodes.insert(name.clone());
+        }
+        plan_clone = next_plan;
+    }
+
+
+    for (i, stage) in staged_plan.iter().enumerate() {
+        println!("\n-- Stage {} --", i + 1);
+        
+        let stage_results: Vec<Result<(String, (String, String))>> = stage
+            .par_iter()
+            .map(|name| {
+                let profile = &config.images[name];
+                let tag_to_use = tag.as_deref().unwrap_or(&profile.local_tag);
+                
+                println!("Building: {} ({}) with tag '{}'", name, profile.path, tag_to_use);
+                engine.build(&root, name, profile, tag_to_use)
+                    .map(|(digest, local_ref)| (name.clone(), (digest, local_ref)))
+                    .map_err(|e| {
+                        eprintln!("❌ Build failed for {}: {}", name, e);
+                        e
+                    })
+            })
+            .collect();
+            
+        for result in stage_results {
+            match result {
+                Ok((name, (digest, local_ref))) => {
+                    let lock_profile = LockImageProfile { digest, local_ref };
+                    new_locks.lock().unwrap().insert(name, lock_profile);
+                }
+                Err(e) => {
+                    build_errors.lock().unwrap().push(e.to_string());
+                }
+            }
+        }
+
+        let errors = build_errors.lock().unwrap();
+        if !errors.is_empty() {
+            bail!("Build failed in Stage {}.\nErrors:\n - {}", i + 1, errors.join("\n - "));
+        }
+    }
+
+
+    // 6. Update Lock File
     if !no_lock {
-        lock_data.images.retain(|name, _| config.images.contains_key(name));
+        let mut lock_data = load_lock(&root).unwrap_or_default();
+        // Update existing entries and add new ones
+        lock_data.images.extend(new_locks.into_inner().unwrap());
+        // Prune images that are no longer in the main config
+        lock_data
+            .images
+            .retain(|name, _| config.images.contains_key(name));
         save_lock(&root, &lock_data)?;
-        println!("🔒 deck.lock updated.");
+        println!("\n🔒 deck.lock updated.");
+    } else {
+        println!("\n--no-lock specified, skipping lock file update.");
     }
+
     Ok(())
 }
 
@@ -220,8 +372,8 @@ fn run_push(engine: &impl ContainerEngine, all: bool, images: &[String], tag: &s
     println!("Pushing {} images to '{}'...", targets.len(), registry_url);
 
     for name in targets {
-        if let Some(digest) = lock.images.get(&name) {
-            engine.push(registry_url, &name, digest, tag, insecure)?;
+        if let Some(lock_profile) = lock.images.get(&name) {
+            engine.push(registry_url, &name, &lock_profile.digest, tag, insecure)?;
         }
     }
     Ok(())
@@ -270,7 +422,14 @@ fn run_scan() -> Result<()> {
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| "root".to_string());
                 
-                new_images.insert(name, ImageProfile { path: rel_path });
+                new_images.insert(
+                    name,
+                    ImageProfile {
+                        path: rel_path,
+                        depends_on: Vec::new(),
+                        local_tag: "latest".to_string(),
+                    },
+                );
             }
         }
     }
