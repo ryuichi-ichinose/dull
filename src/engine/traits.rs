@@ -1,25 +1,7 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-fn default_tag() -> String {
-    "latest".to_string()
-}
-
-fn default_context() -> String {
-    ".".to_string()
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
-pub struct ImageProfile {
-    pub path: String,
-    #[serde(default)]
-    pub depends_on: Vec<String>,
-    #[serde(default = "default_tag")]
-    pub local_tag: String,
-    #[serde(default = "default_context")]
-    pub context: String,
-}
+use crate::config::ImageProfile;
 
 pub trait ContainerEngine: Sync + Send {
     fn login(

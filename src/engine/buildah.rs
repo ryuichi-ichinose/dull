@@ -2,7 +2,9 @@ use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-use super::traits::{ContainerEngine, ImageProfile};
+use crate::config::ImageProfile;
+use crate::engine::traits::ContainerEngine;
+
 
 pub struct BuildahEngine;
 
