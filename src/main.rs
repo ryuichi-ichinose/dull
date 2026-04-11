@@ -417,8 +417,10 @@ fn run_scan() -> Result<()> {
             let fname = entry.file_name().to_string_lossy();
             if fname == "Dockerfile" || fname == "Containerfile" || fname.ends_with(".Containerfile") {
                 let rel_path = entry.path().strip_prefix(&root)?.to_string_lossy().to_string();
-                let name = entry.path().parent()
-                    .and_then(|p| p.file_name())
+                let parent_dir = entry.path().parent().unwrap_or(&root);
+                let context_path = parent_dir.strip_prefix(&root)?.to_string_lossy().to_string();
+                let name = parent_dir
+                    .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| "root".to_string());
                 
@@ -428,6 +430,7 @@ fn run_scan() -> Result<()> {
                         path: rel_path,
                         depends_on: Vec::new(),
                         local_tag: "latest".to_string(),
+                        context: if context_path.is_empty() { ".".to_string() } else { context_path },
                     },
                 );
             }

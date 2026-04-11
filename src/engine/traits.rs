@@ -6,6 +6,10 @@ fn default_tag() -> String {
     "latest".to_string()
 }
 
+fn default_context() -> String {
+    ".".to_string()
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct ImageProfile {
     pub path: String,
@@ -13,6 +17,8 @@ pub struct ImageProfile {
     pub depends_on: Vec<String>,
     #[serde(default = "default_tag")]
     pub local_tag: String,
+    #[serde(default = "default_context")]
+    pub context: String,
 }
 
 pub trait ContainerEngine: Sync + Send {

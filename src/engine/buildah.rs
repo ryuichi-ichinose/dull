@@ -57,6 +57,7 @@ impl ContainerEngine for BuildahEngine {
         println!("Building: {} ({})", name, profile.path);
 
         // 1. Build the image and tag it locally
+        let context_path = root.join(&profile.context);
         let build_status = Command::new("buildah")
             .current_dir(root)
             .arg("bud")
@@ -66,7 +67,7 @@ impl ContainerEngine for BuildahEngine {
             .arg(&profile.path)
             .arg("-t")
             .arg(&local_ref)
-            .arg(".")
+            .arg(context_path)
             .status()
             .context("Buildah 'bud' execution failed")?;
 
