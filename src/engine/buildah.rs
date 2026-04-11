@@ -1,6 +1,4 @@
 use anyhow::{bail, Context, Result};
-use std::env;
-use std::fs;
 use std::path::Path;
 use std::process::Command;
 
@@ -54,12 +52,12 @@ impl ContainerEngine for BuildahEngine {
     }
 
     fn build(&self, root: &Path, name: &str, profile: &ImageProfile, tag: &str) -> Result<(String, String)> {
+        let local_ref = format!("localhost/{}:{}", name, tag);
+
         println!("Building: {} ({})", name, profile.path);
 
-        let local_ref = format!("localhost/{}:{}", name, tag);
-        let iid_path = env::temp_dir().join(format!("deck_iid_{}", uuid::Uuid::new_v4()));
-
-        let status = Command::new("buildah")
+        // 1. Build the image and tag it locally
+        let build_status = Command::new("buildah")
             .current_dir(root)
             .arg("bud")
             .arg("--format=oci")
@@ -68,23 +66,40 @@ impl ContainerEngine for BuildahEngine {
             .arg(&profile.path)
             .arg("-t")
             .arg(&local_ref)
-            .arg("--iidfile")
-            .arg(&iid_path)
             .arg(".")
             .status()
-            .context("Buildah execution failed")?;
+            .context("Buildah 'bud' execution failed")?;
 
-        if !status.success() {
-            let _ = fs::remove_file(&iid_path);
+        if !build_status.success() {
             bail!("Build failed for {}", name);
         }
 
-        let digest = fs::read_to_string(&iid_path)
-            .context("Failed to read image ID")?
+        // 2. Inspect the local image to get its manifest digest
+        println!("Inspecting image digest for {}", local_ref);
+        let inspect_output = Command::new("buildah")
+            .arg("inspect")
+            .arg("--format")
+            .arg("{{.FromImageDigest}}")
+            .arg(&local_ref)
+            .output()
+            .context("Buildah 'inspect' execution failed")?;
+
+        if !inspect_output.status.success() {
+            bail!(
+                "Failed to inspect image digest for {}: {}",
+                local_ref,
+                String::from_utf8_lossy(&inspect_output.stderr)
+            );
+        }
+
+        let digest = String::from_utf8(inspect_output.stdout)?
             .trim()
             .to_string();
 
-        let _ = fs::remove_file(&iid_path);
+        if digest.is_empty() {
+            bail!("Got empty digest for {}", local_ref);
+        }
+
         println!("Built Digest: {}", digest);
 
         Ok((digest, local_ref))
