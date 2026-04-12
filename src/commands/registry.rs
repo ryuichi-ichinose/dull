@@ -1,6 +1,6 @@
 use crate::cli::RegistryAction;
 use crate::config::{load_context, load_context_or_create, save_config, ProjectConfig};
-use crate::engine::ContainerEngine;
+use crate::engine::{ContainerEngine, RegistryAuth};
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 
@@ -21,7 +21,13 @@ pub fn run_login(
     let target = registry_alias.unwrap_or("default");
     let registry_url = registries.get(target).map(|s| s.as_str()).unwrap_or(target);
 
-    engine.login(registry_url, username, password, extra_args)
+    let auth = RegistryAuth {
+        username,
+        password,
+        extra_args,
+    };
+
+    engine.login(registry_url, &auth)
 }
 
 pub fn run_registry(action: &RegistryAction) -> Result<()> {

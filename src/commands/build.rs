@@ -1,5 +1,5 @@
 use crate::config::{load_context, load_lock, save_lock, LockImageProfile};
-use crate::engine::ContainerEngine;
+use crate::engine::{BuildOptions, BuildResult, ContainerEngine};
 use anyhow::{anyhow, bail, Result};
 use petgraph::{algo::toposort, graph::DiGraph};
 use rayon::prelude::*;
@@ -94,7 +94,7 @@ pub fn run_build(
     println!();
 
     let new_locks = Mutex::new(BTreeMap::new());
-    let build_errors = Mutex::new(Vec::new());
+    let build_errors = Mutex::new(Vec::<String>::new());
 
     let mut staged_plan: Vec<Vec<String>> = Vec::new();
     let mut built_nodes = BTreeSet::new();
@@ -130,15 +130,24 @@ pub fn run_build(
         println!("
 -- Stage {} --", i + 1);
         
-        let stage_results: Vec<Result<(String, (String, String))>> = stage
+        let stage_results: Vec<Result<(String, BuildResult)>> = stage
             .par_iter()
             .map(|name| {
                 let profile = &config.images[name];
                 let tag_to_use = tag.as_deref().unwrap_or(&profile.local_tag);
                 
+                let dockerfile_path = root.join(&profile.path);
+                let context_dir = root.join(&profile.context);
+
+                let opts = BuildOptions {
+                    dockerfile_path: &dockerfile_path,
+                    context_dir: &context_dir,
+                    target_tag: tag_to_use,
+                };
+                
                 println!("Building: {} ({}) with tag '{}'", name, profile.path, tag_to_use);
-                engine.build(&root, name, profile, tag_to_use)
-                    .map(|(digest, local_ref)| (name.clone(), (digest, local_ref)))
+                engine.build(name, opts)
+                    .map(|res| (name.clone(), res))
                     .map_err(|e| {
                         eprintln!("❌ Build failed for {}: {}", name, e);
                         e
@@ -148,8 +157,8 @@ pub fn run_build(
             
         for result in stage_results {
             match result {
-                Ok((name, (digest, local_ref))) => {
-                    let lock_profile = LockImageProfile { digest, local_ref };
+                Ok((name, res)) => {
+                    let lock_profile = LockImageProfile { digest: res.digest, local_ref: res.local_ref };
                     new_locks.lock().unwrap().insert(name, lock_profile);
                 }
                 Err(e) => {
