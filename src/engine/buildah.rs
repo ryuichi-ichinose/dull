@@ -1,43 +1,34 @@
 use anyhow::{bail, Context, Result};
-use std::path::Path;
 use std::process::Command;
 
-use crate::config::ImageProfile;
-use crate::engine::traits::ContainerEngine;
-
+use crate::engine::traits::{BuildOptions, BuildResult, ContainerEngine, RegistryAuth};
 
 pub struct BuildahEngine;
 
 impl BuildahEngine {
     pub fn new() -> Result<Self> {
         if Command::new("buildah").arg("--version").output().is_err() {
-            bail!("❌ 'buildah' command not found. Install it first (e.g., dnf install buildah).");
+            bail!("❌ 'buildah' command not found. Install it first.");
         }
         Ok(Self)
     }
 }
 
 impl ContainerEngine for BuildahEngine {
-    fn login(
-        &self,
-        registry_url: &str,
-        username: Option<&str>,
-        password: Option<&str>,
-        extra_args: &[String],
-    ) -> Result<()> {
+    fn login(&self, registry_url: &str, auth: &RegistryAuth) -> Result<()> {
         println!("Logging into '{}'...", registry_url);
 
         let mut cmd = Command::new("buildah");
         cmd.arg("login");
 
-        if let Some(u) = username {
+        if let Some(u) = auth.username {
             cmd.arg("-u").arg(u);
         }
-        if let Some(p) = password {
+        if let Some(p) = auth.password {
             cmd.arg("-p").arg(p);
         }
 
-        cmd.args(extra_args);
+        cmd.args(auth.extra_args);
         cmd.arg(registry_url);
 
         let status = cmd
@@ -53,23 +44,18 @@ impl ContainerEngine for BuildahEngine {
         Ok(())
     }
 
-    fn build(&self, root: &Path, name: &str, profile: &ImageProfile, tag: &str) -> Result<(String, String)> {
-        let local_ref = format!("localhost/{}:{}", name, tag);
+    fn build(&self, name: &str, opts: BuildOptions) -> Result<BuildResult> {
+        let local_ref = format!("localhost/{}:{}", name, opts.target_tag);
 
-        println!("Building: {} ({})", name, profile.path);
+        println!("Building: {} ({:?})", name, opts.dockerfile_path);
 
-        // 1. Build the image and tag it locally
-        let context_path = root.join(&profile.context);
         let build_status = Command::new("buildah")
-            .current_dir(root)
             .arg("bud")
             .arg("--format=oci")
             .arg("--layers=true")
-            .arg("-f")
-            .arg(&profile.path)
-            .arg("-t")
-            .arg(&local_ref)
-            .arg(context_path)
+            .arg("-f").arg(opts.dockerfile_path)
+            .arg("-t").arg(&local_ref)
+            .arg(opts.context_dir)
             .status()
             .context("Buildah 'bud' execution failed")?;
 
@@ -77,7 +63,6 @@ impl ContainerEngine for BuildahEngine {
             bail!("Build failed for {}", name);
         }
 
-        // 2. Inspect the local image to get its manifest digest
         println!("Inspecting image digest for {}", local_ref);
         let inspect_output = Command::new("buildah")
             .arg("inspect")
@@ -105,18 +90,10 @@ impl ContainerEngine for BuildahEngine {
 
         println!("Built Digest: {}", digest);
 
-        Ok((digest, local_ref))
+        Ok(BuildResult { digest, local_ref })
     }
 
-    fn push(
-        &self,
-        registry: &str,
-        name: &str,
-        digest: &str,
-        tag: &str,
-        insecure: bool,
-    ) -> Result<()> {
-        let src = digest;
+    fn push(&self, registry: &str, name: &str, digest: &str, tag: &str, insecure: bool) -> Result<()> {
         let dest = format!("docker://{}/{}:{}", registry, name, tag);
         println!("Pushing Locked Image: {} -> {}", name, dest);
         println!("   (Source Digest: {})", digest);
@@ -126,7 +103,7 @@ impl ContainerEngine for BuildahEngine {
         if insecure {
             cmd.arg("--tls-verify=false");
         }
-        cmd.arg(src).arg(&dest);
+        cmd.arg(digest).arg(&dest);
 
         let status = cmd.status().context("Buildah push failed")?;
 

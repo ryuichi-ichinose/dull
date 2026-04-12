@@ -2,4 +2,4 @@ mod buildah;
 mod traits;
 
 pub use self::buildah::BuildahEngine;
-pub use self::traits::ContainerEngine;
+pub use self::traits::{BuildOptions, BuildResult, ContainerEngine, RegistryAuth};
