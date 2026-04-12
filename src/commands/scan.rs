@@ -15,11 +15,19 @@ pub fn run_scan() -> Result<()> {
             if fname == "Dockerfile" || fname == "Containerfile" || fname.ends_with(".Containerfile") {
                 let rel_path = entry.path().strip_prefix(&root)?.to_string_lossy().to_string();
                 let parent_dir = entry.path().parent().unwrap_or(&root);
-                let context_path = parent_dir.strip_prefix(&root)?.to_string_lossy().to_string();
-                let name = parent_dir
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "root".to_string());
+                let context_path = parent_dir.strip_prefix(&root)?.to_string_lossy();
+                
+                let name = if context_path.is_empty() {
+                    "root".to_string()
+                } else {
+                    context_path.replace(std::path::MAIN_SEPARATOR, "-")
+                };
+
+                let context_str = if context_path.is_empty() {
+                    ".".to_string()
+                } else {
+                    context_path.to_string()
+                };
 
                 new_images.insert(
                     name,
@@ -27,11 +35,7 @@ pub fn run_scan() -> Result<()> {
                         path: rel_path,
                         depends_on: Vec::new(),
                         local_tag: "latest".to_string(),
-                        context: if context_path.is_empty() {
-                            ".".to_string()
-                        } else {
-                            context_path
-                        },
+                        context: context_str,
                     },
                 );
             }
