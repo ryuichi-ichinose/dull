@@ -5,7 +5,6 @@ mod config;
 mod engine;
 
 use crate::cli::{Cli, Commands};
-use crate::config::ProjectContext;
 use crate::engine::BuildahEngine;
 use anyhow::Result;
 use clap::Parser;
@@ -18,14 +17,16 @@ fn main() -> Result<()> {
         return commands::init::run_init();
     }
 
-    let mut ctx = ProjectContext::load()?;
+    // ここで唯一の「世界のロード」を行う
+    let ctx = config::load_project_context()?;
 
+    // 各コマンド（配管）へデータを流し込む
     match cli.command {
         Commands::Init => unreachable!(),
-        Commands::Scan => commands::scan::run_scan(&mut ctx),
-        Commands::Login(args) => commands::registry::run_login(&engine, &ctx, args),
-        Commands::Registry(args) => commands::registry::run_registry(&mut ctx, &args.action),
-        Commands::Build(args) => commands::build::run_build(&engine, &mut ctx, args),
-        Commands::Push(args) => commands::push::run_push(&engine, &ctx, args),
+        Commands::Scan => commands::scan::run_scan(ctx),
+        Commands::Login(args) => commands::registry::run_login(&engine, ctx, args),
+        Commands::Registry(args) => commands::registry::run_registry(ctx, args.action),
+        Commands::Build(args) => commands::build::run_build(&engine, ctx, args),
+        Commands::Push(args) => commands::push::run_push(&engine, ctx, args),
     }
 }

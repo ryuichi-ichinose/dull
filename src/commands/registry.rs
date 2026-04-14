@@ -1,12 +1,12 @@
 use crate::cli::{LoginArgs, RegistryAction};
-use crate::config::{ProjectConfig, ProjectContext};
+use crate::config::{ProjectConfig, ProjectContext, save_config};
 use crate::engine::{ContainerEngine, RegistryAuth};
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 
 pub fn run_login(
     engine: &impl ContainerEngine,
-    ctx: &ProjectContext,
+    ctx: ProjectContext,
     args: LoginArgs,
 ) -> Result<()> {
     let registries = &ctx
@@ -28,7 +28,7 @@ pub fn run_login(
     engine.login(registry_url, &auth)
 }
 
-pub fn run_registry(ctx: &mut ProjectContext, action: &RegistryAction) -> Result<()> {
+pub fn run_registry(mut ctx: ProjectContext, action: RegistryAction) -> Result<()> {
     let project = ctx.config.project.get_or_insert(ProjectConfig {
         name: None,
         registries: BTreeMap::new(),
@@ -43,7 +43,7 @@ pub fn run_registry(ctx: &mut ProjectContext, action: &RegistryAction) -> Result
             println!("Registry '{}' -> '{}'", name, clean_url);
         }
         RegistryAction::Rm { name } => {
-            if project.registries.remove(name).is_some() {
+            if project.registries.remove(&name).is_some() {
                 println!("Removed '{}'", name);
             } else {
                 eprintln!("Registry '{}' not found.", name);
@@ -56,6 +56,6 @@ pub fn run_registry(ctx: &mut ProjectContext, action: &RegistryAction) -> Result
             return Ok(());
         }
     }
-    ctx.save_config()?;
+    save_config(&ctx)?;
     Ok(())
 }
