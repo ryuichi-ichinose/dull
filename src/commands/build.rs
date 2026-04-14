@@ -9,7 +9,7 @@ use std::{
 };
 
 pub fn run_build(
-    engine: &(impl ContainerEngine + Sync),
+    engine: &(impl ContainerEngine),
     all: bool,
     images: &[String],
     no_lock: bool,
