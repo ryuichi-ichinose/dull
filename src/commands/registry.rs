@@ -1,16 +1,10 @@
-use crate::cli::RegistryAction;
+use crate::cli::{LoginArgs, RegistryAction};
 use crate::config::{ProjectConfig, load_context, load_context_or_create, save_config};
 use crate::engine::{ContainerEngine, RegistryAuth};
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 
-pub fn run_login(
-    engine: &impl ContainerEngine,
-    registry_alias: Option<&str>,
-    username: Option<&str>,
-    password: Option<&str>,
-    extra_args: &[String],
-) -> Result<()> {
+pub fn run_login(engine: &impl ContainerEngine, args: LoginArgs) -> Result<()> {
     let (_, config) = load_context()?;
     let registries = &config
         .project
@@ -18,13 +12,13 @@ pub fn run_login(
         .context("Project config missing")?
         .registries;
 
-    let target = registry_alias.unwrap_or("default");
+    let target = args.registry.as_deref().unwrap_or("default");
     let registry_url = registries.get(target).map(|s| s.as_str()).unwrap_or(target);
 
     let auth = RegistryAuth {
-        username,
-        password,
-        extra_args,
+        username: args.username.as_deref(),
+        password: args.password.as_deref(),
+        extra_args: &args.extra_args,
     };
 
     engine.login(registry_url, &auth)
