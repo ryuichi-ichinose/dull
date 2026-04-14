@@ -1,6 +1,6 @@
-use crate::config::{load_context, load_lock, save_lock, LockImageProfile};
+use crate::config::{LockImageProfile, load_context, load_lock, save_lock};
 use crate::engine::{BuildOptions, BuildResult, ContainerEngine};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use petgraph::{algo::toposort, graph::DiGraph};
 use rayon::prelude::*;
 use std::{
@@ -9,7 +9,7 @@ use std::{
 };
 
 pub fn run_build(
-    engine: &(impl ContainerEngine),
+    engine: &impl ContainerEngine,
     all: bool,
     images: &[String],
     no_lock: bool,
@@ -41,7 +41,11 @@ pub fn run_build(
             if let Some(&from_index) = node_map.get(dep) {
                 graph.add_edge(from_index, to_index, ());
             } else {
-                bail!("Image '{}' depends on '{}', which is not defined.", name, dep);
+                bail!(
+                    "Image '{}' depends on '{}', which is not defined.",
+                    name,
+                    dep
+                );
             }
         }
     }
@@ -106,7 +110,10 @@ pub fn run_build(
 
         for name in plan_clone {
             let profile = &config.images[&name];
-            let all_deps_built = profile.depends_on.iter().all(|dep| built_nodes.contains(dep));
+            let all_deps_built = profile
+                .depends_on
+                .iter()
+                .all(|dep| built_nodes.contains(dep));
 
             if all_deps_built {
                 current_stage.push(name.clone());
@@ -116,9 +123,11 @@ pub fn run_build(
         }
 
         if current_stage.is_empty() && !next_plan.is_empty() {
-            return Err(anyhow!("Failed to create build stages. Check for logical error in dependency resolution."));
+            return Err(anyhow!(
+                "Failed to create build stages. Check for logical error in dependency resolution."
+            ));
         }
-        
+
         staged_plan.push(current_stage);
         for name in staged_plan.last().unwrap() {
             built_nodes.insert(name.clone());
@@ -127,15 +136,18 @@ pub fn run_build(
     }
 
     for (i, stage) in staged_plan.iter().enumerate() {
-        println!("
--- Stage {} --", i + 1);
-        
+        println!(
+            "
+-- Stage {} --",
+            i + 1
+        );
+
         let stage_results: Vec<Result<(String, BuildResult)>> = stage
             .par_iter()
             .map(|name| {
                 let profile = &config.images[name];
                 let tag_to_use = tag.as_deref().unwrap_or(&profile.local_tag);
-                
+
                 let dockerfile_path = root.join(&profile.path);
                 let context_dir = root.join(&profile.context);
 
@@ -144,9 +156,13 @@ pub fn run_build(
                     context_dir: &context_dir,
                     target_tag: tag_to_use,
                 };
-                
-                println!("Building: {} ({}) with tag '{}'", name, profile.path, tag_to_use);
-                engine.build(name, opts)
+
+                println!(
+                    "Building: {} ({}) with tag '{}'",
+                    name, profile.path, tag_to_use
+                );
+                engine
+                    .build(name, opts)
                     .map(|res| (name.clone(), res))
                     .map_err(|e| {
                         eprintln!("❌ Build failed for {}: {}", name, e);
@@ -154,11 +170,14 @@ pub fn run_build(
                     })
             })
             .collect();
-            
+
         for result in stage_results {
             match result {
                 Ok((name, res)) => {
-                    let lock_profile = LockImageProfile { digest: res.digest, local_ref: res.local_ref };
+                    let lock_profile = LockImageProfile {
+                        digest: res.digest,
+                        local_ref: res.local_ref,
+                    };
                     new_locks.lock().unwrap().insert(name, lock_profile);
                 }
                 Err(e) => {
@@ -169,10 +188,16 @@ pub fn run_build(
 
         let errors = build_errors.lock().unwrap();
         if !errors.is_empty() {
-            bail!("Build failed in Stage {}.
+            bail!(
+                "Build failed in Stage {}.
 Errors:
- - {}", i + 1, errors.join("
- - "));
+ - {}",
+                i + 1,
+                errors.join(
+                    "
+ - "
+                )
+            );
         }
     }
 
@@ -184,11 +209,15 @@ Errors:
             .images
             .retain(|name, _| config.images.contains_key(name));
         save_lock(&root, &lock_data)?;
-        println!("
-🔒 deck.lock updated.");
+        println!(
+            "
+🔒 deck.lock updated."
+        );
     } else {
-        println!("
---no-lock specified, skipping lock file update.");
+        println!(
+            "
+--no-lock specified, skipping lock file update."
+        );
     }
 
     Ok(())

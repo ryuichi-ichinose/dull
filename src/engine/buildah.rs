@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::process::Command;
 
 use crate::engine::traits::{BuildOptions, BuildResult, ContainerEngine, RegistryAuth};
@@ -53,8 +53,10 @@ impl ContainerEngine for BuildahEngine {
             .arg("bud")
             .arg("--format=oci")
             .arg("--layers=true")
-            .arg("-f").arg(opts.dockerfile_path)
-            .arg("-t").arg(&local_ref)
+            .arg("-f")
+            .arg(opts.dockerfile_path)
+            .arg("-t")
+            .arg(&local_ref)
             .arg(opts.context_dir)
             .status()
             .context("Buildah 'bud' execution failed")?;
@@ -80,9 +82,7 @@ impl ContainerEngine for BuildahEngine {
             );
         }
 
-        let digest = String::from_utf8(inspect_output.stdout)?
-            .trim()
-            .to_string();
+        let digest = String::from_utf8(inspect_output.stdout)?.trim().to_string();
 
         if digest.is_empty() {
             bail!("Got empty digest for {}", local_ref);
@@ -93,7 +93,14 @@ impl ContainerEngine for BuildahEngine {
         Ok(BuildResult { digest, local_ref })
     }
 
-    fn push(&self, registry: &str, name: &str, digest: &str, tag: &str, insecure: bool) -> Result<()> {
+    fn push(
+        &self,
+        registry: &str,
+        name: &str,
+        digest: &str,
+        tag: &str,
+        insecure: bool,
+    ) -> Result<()> {
         let dest = format!("docker://{}/{}:{}", registry, name, tag);
         println!("Pushing Locked Image: {} -> {}", name, dest);
         println!("   (Source Digest: {})", digest);
