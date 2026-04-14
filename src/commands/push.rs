@@ -1,15 +1,9 @@
+use crate::cli::PushArgs;
 use crate::config::{load_context, load_lock};
 use crate::engine::ContainerEngine;
 use anyhow::{Context, Result, bail};
 
-pub fn run_push(
-    engine: &impl ContainerEngine,
-    all: bool,
-    images: &[String],
-    tag: &str,
-    registry_alias: Option<&str>,
-    insecure: bool,
-) -> Result<()> {
+pub fn run_push(engine: &impl ContainerEngine, args: PushArgs) -> Result<()> {
     let (root, config) = load_context()?;
     let lock = load_lock(&root).context("❌ deck.lock not found. Run 'build' first.")?;
 
@@ -19,7 +13,7 @@ pub fn run_push(
         .context("Project config missing")?
         .registries;
 
-    let target_alias = registry_alias.unwrap_or("default");
+    let target_alias = args.registry.as_deref().unwrap_or("default");
     let registry_url = registries
         .get(target_alias)
         .or_else(|| {
@@ -31,13 +25,13 @@ pub fn run_push(
         })
         .with_context(|| format!("Registry alias '{}' not found", target_alias))?;
 
-    let targets: Vec<String> = if all {
+    let targets: Vec<String> = if args.all {
         lock.images.keys().cloned().collect()
     } else {
-        if images.is_empty() {
+        if args.images.is_empty() {
             bail!("Specify images or --all");
         }
-        images
+        args.images
             .iter()
             .filter(|&n| lock.images.contains_key(n))
             .cloned()
@@ -53,7 +47,13 @@ pub fn run_push(
 
     for name in targets {
         if let Some(lock_profile) = lock.images.get(&name) {
-            engine.push(registry_url, &name, &lock_profile.digest, tag, insecure)?;
+            engine.push(
+                registry_url,
+                &name,
+                &lock_profile.digest,
+                &args.tag,
+                args.insecure,
+            )?;
         }
     }
     Ok(())

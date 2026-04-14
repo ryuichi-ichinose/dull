@@ -1,3 +1,4 @@
+use crate::cli::BuildArgs;
 use crate::config::{LockImageProfile, load_context, load_lock, save_lock};
 use crate::engine::{BuildOptions, BuildResult, ContainerEngine};
 use anyhow::{Result, anyhow, bail};
@@ -8,23 +9,17 @@ use std::{
     sync::Mutex,
 };
 
-pub fn run_build(
-    engine: &impl ContainerEngine,
-    all: bool,
-    images: &[String],
-    no_lock: bool,
-    tag: &Option<String>,
-) -> Result<()> {
+pub fn run_build(engine: &impl ContainerEngine, args: BuildArgs) -> Result<()> {
     let (root, config) = load_context()?;
 
     // 1. Determine Target Nodes
-    let targets_to_build: BTreeSet<String> = if all {
+    let targets_to_build: BTreeSet<String> = if args.all {
         config.images.keys().cloned().collect()
     } else {
-        if images.is_empty() {
+        if args.images.is_empty() {
             bail!("Specify image names or use --all");
         }
-        images.iter().cloned().collect()
+        args.images.iter().cloned().collect()
     };
 
     // 2. Build Full Dependency Graph
@@ -136,17 +131,13 @@ pub fn run_build(
     }
 
     for (i, stage) in staged_plan.iter().enumerate() {
-        println!(
-            "
--- Stage {} --",
-            i + 1
-        );
+        println!("\n-- Stage {} --", i + 1);
 
         let stage_results: Vec<Result<(String, BuildResult)>> = stage
             .par_iter()
             .map(|name| {
                 let profile = &config.images[name];
-                let tag_to_use = tag.as_deref().unwrap_or(&profile.local_tag);
+                let tag_to_use = args.tag.as_deref().unwrap_or(&profile.local_tag);
 
                 let dockerfile_path = root.join(&profile.path);
                 let context_dir = root.join(&profile.context);
@@ -189,35 +180,24 @@ pub fn run_build(
         let errors = build_errors.lock().unwrap();
         if !errors.is_empty() {
             bail!(
-                "Build failed in Stage {}.
-Errors:
- - {}",
+                "Build failed in Stage {}.\nErrors:\n - {}",
                 i + 1,
-                errors.join(
-                    "
- - "
-                )
+                errors.join("\n - ")
             );
         }
     }
 
     // 6. Update Lock File
-    if !no_lock {
+    if !args.no_lock {
         let mut lock_data = load_lock(&root).unwrap_or_default();
         lock_data.images.extend(new_locks.into_inner().unwrap());
         lock_data
             .images
             .retain(|name, _| config.images.contains_key(name));
         save_lock(&root, &lock_data)?;
-        println!(
-            "
-🔒 deck.lock updated."
-        );
+        println!("\n🔒 deck.lock updated.");
     } else {
-        println!(
-            "
---no-lock specified, skipping lock file update."
-        );
+        println!("\n--no-lock specified, skipping lock file update.");
     }
 
     Ok(())
