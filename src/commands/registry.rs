@@ -1,15 +1,19 @@
 use crate::cli::{LoginArgs, RegistryAction};
-use crate::config::{ProjectConfig, load_context, load_context_or_create, save_config};
+use crate::config::{ProjectConfig, ProjectContext};
 use crate::engine::{ContainerEngine, RegistryAuth};
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 
-pub fn run_login(engine: &impl ContainerEngine, args: LoginArgs) -> Result<()> {
-    let (_, config) = load_context()?;
-    let registries = &config
+pub fn run_login(
+    engine: &impl ContainerEngine,
+    ctx: &ProjectContext,
+    args: LoginArgs,
+) -> Result<()> {
+    let registries = &ctx
+        .config
         .project
         .as_ref()
-        .context("Project config missing")?
+        .context("Project config missing in deck.toml")?
         .registries;
 
     let target = args.registry.as_deref().unwrap_or("default");
@@ -24,10 +28,8 @@ pub fn run_login(engine: &impl ContainerEngine, args: LoginArgs) -> Result<()> {
     engine.login(registry_url, &auth)
 }
 
-pub fn run_registry(action: &RegistryAction) -> Result<()> {
-    let (root, mut config) = load_context_or_create()?;
-
-    let project = config.project.get_or_insert(ProjectConfig {
+pub fn run_registry(ctx: &mut ProjectContext, action: &RegistryAction) -> Result<()> {
+    let project = ctx.config.project.get_or_insert(ProjectConfig {
         name: None,
         registries: BTreeMap::new(),
     });
@@ -54,6 +56,6 @@ pub fn run_registry(action: &RegistryAction) -> Result<()> {
             return Ok(());
         }
     }
-    save_config(&root.join("deck.toml"), &config)?;
+    ctx.save_config()?;
     Ok(())
 }

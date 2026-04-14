@@ -1,61 +1,62 @@
-use crate::config::{ImageProfile, load_context_or_create, save_config};
+use crate::config::{ImageProfile, ProjectContext};
 use anyhow::Result;
 use std::collections::BTreeMap;
 use walkdir::WalkDir;
 
-pub fn run_scan() -> Result<()> {
-    let (root, mut config) = load_context_or_create()?;
-    let mut new_images = BTreeMap::new();
+pub fn run_scan(ctx: &mut ProjectContext) -> Result<()> {
+    let mut new_found = BTreeMap::new();
 
-    println!("Scanning for Containerfiles in {:?}", root);
+    println!("Scanning for Containerfiles in {:?}", ctx.root);
 
-    for entry in WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
-        if entry.file_type().is_file() {
-            let fname = entry.file_name().to_string_lossy();
-            if fname == "Dockerfile"
-                || fname == "Containerfile"
-                || fname.ends_with(".Containerfile")
-            {
-                let rel_path = entry
-                    .path()
-                    .strip_prefix(&root)?
-                    .to_string_lossy()
-                    .to_string();
-                let parent_dir = entry.path().parent().unwrap_or(&root);
-                let context_path = parent_dir.strip_prefix(&root)?.to_string_lossy();
+    for entry in WalkDir::new(&ctx.root).into_iter().filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
 
-                let name = if context_path.is_empty() {
-                    "root".to_string()
-                } else {
-                    context_path.replace(std::path::MAIN_SEPARATOR, "-")
-                };
+        let fname = entry.file_name().to_string_lossy();
+        if fname == "Dockerfile" || fname == "Containerfile" || fname.ends_with(".Containerfile") {
+            let rel_path = entry
+                .path()
+                .strip_prefix(&ctx.root)?
+                .to_string_lossy()
+                .to_string();
+            let parent = entry.path().parent().unwrap_or(&ctx.root);
+            let context_path = parent
+                .strip_prefix(&ctx.root)?
+                .to_string_lossy()
+                .to_string();
 
-                let context_str = if context_path.is_empty() {
-                    ".".to_string()
-                } else {
-                    context_path.to_string()
-                };
+            let name = if context_path.is_empty() {
+                "root".to_string()
+            } else {
+                context_path.replace(std::path::MAIN_SEPARATOR, "-")
+            };
 
-                new_images.insert(
-                    name,
-                    ImageProfile {
-                        path: rel_path,
-                        depends_on: Vec::new(),
-                        local_tag: "latest".to_string(),
-                        context: context_str,
-                    },
-                );
-            }
+            let context_str = if context_path.is_empty() {
+                ".".to_string()
+            } else {
+                context_path
+            };
+
+            new_found.insert(
+                name,
+                ImageProfile {
+                    path: rel_path,
+                    depends_on: Vec::new(),
+                    local_tag: "latest".to_string(),
+                    context: context_str,
+                },
+            );
         }
     }
 
-    if new_images.is_empty() {
-        println!("No Dockerfiles found.");
+    if new_found.is_empty() {
+        println!("No Containerfiles found.");
     } else {
-        for (k, v) in new_images {
-            config.images.entry(k).or_insert(v);
+        for (k, v) in new_found {
+            ctx.config.images.entry(k).or_insert(v);
         }
-        save_config(&root.join("deck.toml"), &config)?;
+        ctx.save_config()?;
         println!("Updated deck.toml with found images.");
     }
     Ok(())
