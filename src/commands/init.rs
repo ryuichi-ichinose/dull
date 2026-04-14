@@ -4,9 +4,9 @@ use std::collections::BTreeMap;
 use std::env;
 
 pub fn run_init() -> Result<()> {
-    let config_path = env::current_dir()?.join("deck.toml");
+    let config_path = env::current_dir()?.join("dull.toml");
     if config_path.exists() {
-        println!("deck.toml already exists.");
+        println!("dull.toml already exists.");
         return Ok(());
     }
 
@@ -22,6 +22,6 @@ pub fn run_init() -> Result<()> {
     };
 
     save_config_file(&config_path, &conf)?;
-    println!("Initialized deck.toml");
+    println!("Initialized dull.toml");
     Ok(())
 }

@@ -13,7 +13,7 @@ pub fn run_login(
         .config
         .project
         .as_ref()
-        .context("Project config missing in deck.toml")?
+        .context("Project config missing in dull.toml")?
         .registries;
 
     let target = args.registry.as_deref().unwrap_or("default");
