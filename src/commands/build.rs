@@ -69,7 +69,7 @@ pub fn run_build(
             .images
             .retain(|k, _| ctx.config.images.contains_key(k));
         save_lock(&ctx)?;
-        println!("\n🔒 deck.lock updated.");
+        println!("\n🔒 dull.lock updated.");
     }
 
     Ok(())
