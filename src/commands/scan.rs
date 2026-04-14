@@ -1,11 +1,10 @@
-use crate::config::{ImageProfile, ProjectContext};
+use crate::config::{ImageProfile, ProjectContext, save_config};
 use anyhow::Result;
 use std::collections::BTreeMap;
 use walkdir::WalkDir;
 
-pub fn run_scan(ctx: &mut ProjectContext) -> Result<()> {
+pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
     let mut new_found = BTreeMap::new();
-
     println!("Scanning for Containerfiles in {:?}", ctx.root);
 
     for entry in WalkDir::new(&ctx.root).into_iter().filter_map(|e| e.ok()) {
@@ -56,7 +55,7 @@ pub fn run_scan(ctx: &mut ProjectContext) -> Result<()> {
         for (k, v) in new_found {
             ctx.config.images.entry(k).or_insert(v);
         }
-        ctx.save_config()?;
+        save_config(&ctx)?;
         println!("Updated deck.toml with found images.");
     }
     Ok(())

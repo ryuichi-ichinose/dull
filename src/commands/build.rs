@@ -1,6 +1,5 @@
-use crate::build_graph::BuildGraph;
 use crate::cli::BuildArgs;
-use crate::config::{LockImageProfile, ProjectContext};
+use crate::config::{LockImageProfile, ProjectContext, save_lock};
 use crate::engine::{BuildOptions, BuildResult, ContainerEngine};
 use anyhow::{Result, bail};
 use rayon::prelude::*;
@@ -9,7 +8,7 @@ use std::sync::Mutex;
 
 pub fn run_build(
     engine: &impl ContainerEngine,
-    ctx: &mut ProjectContext,
+    mut ctx: ProjectContext,
     args: BuildArgs,
 ) -> Result<()> {
     let targets: BTreeSet<String> = if args.all {
@@ -21,14 +20,15 @@ pub fn run_build(
         args.images.iter().cloned().collect()
     };
 
-    let graph = BuildGraph::new(&ctx.config);
-    let plan = graph.create_plan(&targets)?;
+    // 1. 純粋な計算
+    let plan = crate::build_graph::compute_plan(&ctx.config, &targets)?;
 
     if plan.stages.is_empty() {
         println!("Nothing to build.");
         return Ok(());
     }
 
+    // 2. 副作用（エンジンの実行）
     let new_locks = Mutex::new(BTreeMap::new());
 
     for (i, stage) in plan.stages.iter().enumerate() {
@@ -41,8 +41,8 @@ pub fn run_build(
                 let tag = args.tag.as_deref().unwrap_or(&profile.local_tag);
 
                 let opts = BuildOptions {
-                    dockerfile_path: &ctx.absolute_path(&profile.path),
-                    context_dir: &ctx.absolute_path(&profile.context),
+                    dockerfile_path: &ctx.root.join(&profile.path),
+                    context_dir: &ctx.root.join(&profile.context),
                     target_tag: tag,
                 };
 
@@ -62,12 +62,13 @@ pub fn run_build(
         }
     }
 
+    // 3. 状態の更新と保存
     if !args.no_lock {
         ctx.lock.images.extend(new_locks.into_inner().unwrap());
         ctx.lock
             .images
             .retain(|k, _| ctx.config.images.contains_key(k));
-        ctx.save_lock()?;
+        save_lock(&ctx)?;
         println!("\n🔒 deck.lock updated.");
     }
 
