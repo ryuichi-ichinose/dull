@@ -60,21 +60,21 @@ pub struct ProjectContext {
 pub fn load_project_context() -> Result<ProjectContext> {
     let mut curr = env::current_dir()?;
     let root = loop {
-        if curr.join("deck.toml").exists() {
+        if curr.join("dull.toml").exists() {
             break curr;
         }
         if !curr.pop() {
-            bail!("No deck.toml found. Run 'deck init' first.");
+            bail!("No dull.toml found. Run 'dull init' first.");
         }
     };
 
-    let config_content = fs::read_to_string(root.join("deck.toml"))?;
+    let config_content = fs::read_to_string(root.join("dull.toml"))?;
     let config: DeckConfig = toml::from_str(&config_content)?;
 
-    let lock_path = root.join("deck.lock");
+    let lock_path = root.join("dull.lock");
     let lock = if lock_path.exists() {
         let content = fs::read_to_string(&lock_path)?;
-        serde_json::from_str(&content).context("Failed to parse deck.lock")?
+        serde_json::from_str(&content).context("Failed to parse dull.lock")?
     } else {
         DeckLock::default()
     };
@@ -83,12 +83,12 @@ pub fn load_project_context() -> Result<ProjectContext> {
 }
 
 pub fn save_config(ctx: &ProjectContext) -> Result<()> {
-    save_config_file(&ctx.root.join("deck.toml"), &ctx.config)
+    save_config_file(&ctx.root.join("dull.toml"), &ctx.config)
 }
 
 pub fn save_lock(ctx: &ProjectContext) -> Result<()> {
     let content = serde_json::to_string_pretty(&ctx.lock)?;
-    fs::write(ctx.root.join("deck.lock"), content)?;
+    fs::write(ctx.root.join("dull.lock"), content)?;
     Ok(())
 }
 

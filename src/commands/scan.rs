@@ -56,7 +56,7 @@ pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
             ctx.config.images.entry(k).or_insert(v);
         }
         save_config(&ctx)?;
-        println!("Updated deck.toml with found images.");
+        println!("Updated dull.toml with found images.");
     }
     Ok(())
 }
