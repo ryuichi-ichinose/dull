@@ -1,4 +1,4 @@
-use crate::config::{DeckConfig, ProjectConfig, save_config};
+use crate::config::{DeckConfig, ProjectConfig, save_config_file};
 use anyhow::Result;
 use std::collections::BTreeMap;
 use std::env;
@@ -21,7 +21,7 @@ pub fn run_init() -> Result<()> {
         images: BTreeMap::new(),
     };
 
-    save_config(&config_path, &conf)?;
+    save_config_file(&config_path, &conf)?;
     println!("Initialized deck.toml");
     Ok(())
 }
