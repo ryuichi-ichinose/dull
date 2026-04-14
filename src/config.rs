@@ -48,56 +48,53 @@ pub struct DeckLock {
     pub images: BTreeMap<String, LockImageProfile>,
 }
 
-/// 低レベルなファイル保存ヘルパー。initなどコンテキスト外でも使用する。
-pub fn save_config_file(p: &Path, c: &DeckConfig) -> Result<()> {
-    let content = toml::to_string_pretty(c)?;
-    fs::write(p, content).with_context(|| format!("Failed to write config to {:?}", p))?;
-    Ok(())
-}
-
+// 配管に流すためのデータパック
 pub struct ProjectContext {
     pub root: PathBuf,
     pub config: DeckConfig,
     pub lock: DeckLock,
 }
 
-impl ProjectContext {
-    pub fn load() -> Result<Self> {
-        let mut curr = env::current_dir()?;
-        let root = loop {
-            if curr.join("deck.toml").exists() {
-                break curr;
-            }
-            if !curr.pop() {
-                bail!("No deck.toml found. Run 'deck init' first.");
-            }
-        };
+// --- I/O ヘルパー (境界) ---
 
-        let config_content = fs::read_to_string(root.join("deck.toml"))?;
-        let config: DeckConfig = toml::from_str(&config_content)?;
+pub fn load_project_context() -> Result<ProjectContext> {
+    let mut curr = env::current_dir()?;
+    let root = loop {
+        if curr.join("deck.toml").exists() {
+            break curr;
+        }
+        if !curr.pop() {
+            bail!("No deck.toml found. Run 'deck init' first.");
+        }
+    };
 
-        let lock_path = root.join("deck.lock");
-        let lock = if lock_path.exists() {
-            let content = fs::read_to_string(&lock_path)?;
-            serde_json::from_str(&content).context("Failed to parse deck.lock")?
-        } else {
-            DeckLock::default()
-        };
+    let config_content = fs::read_to_string(root.join("deck.toml"))?;
+    let config: DeckConfig = toml::from_str(&config_content)?;
 
-        Ok(Self { root, config, lock })
-    }
+    let lock_path = root.join("deck.lock");
+    let lock = if lock_path.exists() {
+        let content = fs::read_to_string(&lock_path)?;
+        serde_json::from_str(&content).context("Failed to parse deck.lock")?
+    } else {
+        DeckLock::default()
+    };
 
-    pub fn save_config(&self) -> Result<()> {
-        save_config_file(&self.root.join("deck.toml"), &self.config)
-    }
+    Ok(ProjectContext { root, config, lock })
+}
 
-    pub fn save_lock(&self) -> Result<()> {
-        let content = serde_json::to_string_pretty(&self.lock)?;
-        fs::write(self.root.join("deck.lock"), content)?;
-        Ok(())
-    }
+pub fn save_config(ctx: &ProjectContext) -> Result<()> {
+    save_config_file(&ctx.root.join("deck.toml"), &ctx.config)
+}
 
-    pub fn absolute_path(&self, rel: &str) -> PathBuf {
-        self.root.join(rel)
-    }
+pub fn save_lock(ctx: &ProjectContext) -> Result<()> {
+    let content = serde_json::to_string_pretty(&ctx.lock)?;
+    fs::write(ctx.root.join("deck.lock"), content)?;
+    Ok(())
+}
+
+// initなどコンテキスト外でも使用する低レベルヘルパー
+pub fn save_config_file(p: &Path, c: &DeckConfig) -> Result<()> {
+    let content = toml::to_string_pretty(c)?;
+    fs::write(p, content).with_context(|| format!("Failed to write config to {:?}", p))?;
+    Ok(())
 }

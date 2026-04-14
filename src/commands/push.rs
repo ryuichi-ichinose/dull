@@ -3,7 +3,7 @@ use crate::config::ProjectContext;
 use crate::engine::ContainerEngine;
 use anyhow::{Context, Result, bail};
 
-pub fn run_push(engine: &impl ContainerEngine, ctx: &ProjectContext, args: PushArgs) -> Result<()> {
+pub fn run_push(engine: &impl ContainerEngine, ctx: ProjectContext, args: PushArgs) -> Result<()> {
     let project = ctx
         .config
         .project
