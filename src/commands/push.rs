@@ -1,6 +1,6 @@
 use crate::config::{load_context, load_lock};
 use crate::engine::ContainerEngine;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 pub fn run_push(
     engine: &impl ContainerEngine,

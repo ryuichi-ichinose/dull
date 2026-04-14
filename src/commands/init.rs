@@ -1,7 +1,7 @@
+use crate::config::{DeckConfig, ProjectConfig, save_config};
+use anyhow::Result;
 use std::collections::BTreeMap;
 use std::env;
-use anyhow::Result;
-use crate::config::{DeckConfig, ProjectConfig, save_config};
 
 pub fn run_init() -> Result<()> {
     let config_path = env::current_dir()?.join("deck.toml");

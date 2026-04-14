@@ -1,4 +1,4 @@
-use crate::config::{load_context_or_create, save_config, ImageProfile};
+use crate::config::{ImageProfile, load_context_or_create, save_config};
 use anyhow::Result;
 use std::collections::BTreeMap;
 use walkdir::WalkDir;
@@ -12,11 +12,18 @@ pub fn run_scan() -> Result<()> {
     for entry in WalkDir::new(&root).into_iter().filter_map(|e| e.ok()) {
         if entry.file_type().is_file() {
             let fname = entry.file_name().to_string_lossy();
-            if fname == "Dockerfile" || fname == "Containerfile" || fname.ends_with(".Containerfile") {
-                let rel_path = entry.path().strip_prefix(&root)?.to_string_lossy().to_string();
+            if fname == "Dockerfile"
+                || fname == "Containerfile"
+                || fname.ends_with(".Containerfile")
+            {
+                let rel_path = entry
+                    .path()
+                    .strip_prefix(&root)?
+                    .to_string_lossy()
+                    .to_string();
                 let parent_dir = entry.path().parent().unwrap_or(&root);
                 let context_path = parent_dir.strip_prefix(&root)?.to_string_lossy();
-                
+
                 let name = if context_path.is_empty() {
                     "root".to_string()
                 } else {

@@ -1,5 +1,5 @@
 use crate::cli::RegistryAction;
-use crate::config::{load_context, load_context_or_create, save_config, ProjectConfig};
+use crate::config::{ProjectConfig, load_context, load_context_or_create, save_config};
 use crate::engine::{ContainerEngine, RegistryAuth};
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
