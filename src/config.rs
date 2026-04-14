@@ -5,12 +5,9 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-// --- Structs moved from main.rs and engine/traits.rs ---
-
 fn default_tag() -> String {
     "latest".to_string()
 }
-
 fn default_context() -> String {
     ".".to_string()
 }
@@ -27,19 +24,17 @@ pub struct ImageProfile {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct DeckConfig {
-    pub project: Option<ProjectConfig>,
-    #[serde(default)]
-    pub images: BTreeMap<String, ImageProfile>,
-}
-
-impl DeckConfig {}
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ProjectConfig {
     pub name: Option<String>,
     #[serde(default)]
     pub registries: BTreeMap<String, String>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct DeckConfig {
+    pub project: Option<ProjectConfig>,
+    #[serde(default)]
+    pub images: BTreeMap<String, ImageProfile>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -53,43 +48,56 @@ pub struct DeckLock {
     pub images: BTreeMap<String, LockImageProfile>,
 }
 
-// --- Functions moved from main.rs ---
-
-pub fn load_context_or_create() -> Result<(PathBuf, DeckConfig)> {
-    let mut curr = env::current_dir()?;
-    loop {
-        let p = curr.join("deck.toml");
-        if p.exists() {
-            let content = fs::read_to_string(&p).context("Failed to read deck.toml")?;
-            let config = toml::from_str(&content).context("Failed to parse deck.toml")?;
-            return Ok((curr, config));
-        }
-        if !curr.pop() {
-            bail!("No deck.toml found. Run 'deck init' first.");
-        }
-    }
-}
-
-pub fn load_context() -> Result<(PathBuf, DeckConfig)> {
-    load_context_or_create()
-}
-
-pub fn save_config(p: &Path, c: &DeckConfig) -> Result<()> {
-    fs::write(p, toml::to_string_pretty(c)?)?;
+/// 低レベルなファイル保存ヘルパー。initなどコンテキスト外でも使用する。
+pub fn save_config_file(p: &Path, c: &DeckConfig) -> Result<()> {
+    let content = toml::to_string_pretty(c)?;
+    fs::write(p, content).with_context(|| format!("Failed to write config to {:?}", p))?;
     Ok(())
 }
 
-pub fn load_lock(r: &Path) -> Result<DeckLock> {
-    let p = r.join("deck.lock");
-    if p.exists() {
-        let content = fs::read_to_string(&p)?;
-        Ok(serde_json::from_str(&content).context("Failed to parse deck.lock")?)
-    } else {
-        Ok(DeckLock::default())
-    }
+pub struct ProjectContext {
+    pub root: PathBuf,
+    pub config: DeckConfig,
+    pub lock: DeckLock,
 }
 
-pub fn save_lock(r: &Path, l: &DeckLock) -> Result<()> {
-    fs::write(r.join("deck.lock"), serde_json::to_string_pretty(l)?)?;
-    Ok(())
+impl ProjectContext {
+    pub fn load() -> Result<Self> {
+        let mut curr = env::current_dir()?;
+        let root = loop {
+            if curr.join("deck.toml").exists() {
+                break curr;
+            }
+            if !curr.pop() {
+                bail!("No deck.toml found. Run 'deck init' first.");
+            }
+        };
+
+        let config_content = fs::read_to_string(root.join("deck.toml"))?;
+        let config: DeckConfig = toml::from_str(&config_content)?;
+
+        let lock_path = root.join("deck.lock");
+        let lock = if lock_path.exists() {
+            let content = fs::read_to_string(&lock_path)?;
+            serde_json::from_str(&content).context("Failed to parse deck.lock")?
+        } else {
+            DeckLock::default()
+        };
+
+        Ok(Self { root, config, lock })
+    }
+
+    pub fn save_config(&self) -> Result<()> {
+        save_config_file(&self.root.join("deck.toml"), &self.config)
+    }
+
+    pub fn save_lock(&self) -> Result<()> {
+        let content = serde_json::to_string_pretty(&self.lock)?;
+        fs::write(self.root.join("deck.lock"), content)?;
+        Ok(())
+    }
+
+    pub fn absolute_path(&self, rel: &str) -> PathBuf {
+        self.root.join(rel)
+    }
 }

@@ -1,20 +1,19 @@
+use crate::build_graph::BuildGraph;
 use crate::cli::BuildArgs;
-use crate::config::{LockImageProfile, load_context, load_lock, save_lock};
+use crate::config::{LockImageProfile, ProjectContext};
 use crate::engine::{BuildOptions, BuildResult, ContainerEngine};
-use anyhow::{Result, anyhow, bail};
-use petgraph::{algo::toposort, graph::DiGraph};
+use anyhow::{Result, bail};
 use rayon::prelude::*;
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
-    sync::Mutex,
-};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Mutex;
 
-pub fn run_build(engine: &impl ContainerEngine, args: BuildArgs) -> Result<()> {
-    let (root, config) = load_context()?;
-
-    // 1. Determine Target Nodes
-    let targets_to_build: BTreeSet<String> = if args.all {
-        config.images.keys().cloned().collect()
+pub fn run_build(
+    engine: &impl ContainerEngine,
+    ctx: &mut ProjectContext,
+    args: BuildArgs,
+) -> Result<()> {
+    let targets: BTreeSet<String> = if args.all {
+        ctx.config.images.keys().cloned().collect()
     } else {
         if args.images.is_empty() {
             bail!("Specify image names or use --all");
@@ -22,182 +21,54 @@ pub fn run_build(engine: &impl ContainerEngine, args: BuildArgs) -> Result<()> {
         args.images.iter().cloned().collect()
     };
 
-    // 2. Build Full Dependency Graph
-    let mut graph = DiGraph::<String, ()>::new();
-    let mut node_map = HashMap::new();
-    for name in config.images.keys() {
-        let index = graph.add_node(name.clone());
-        node_map.insert(name.clone(), index);
-    }
+    let graph = BuildGraph::new(&ctx.config);
+    let plan = graph.create_plan(&targets)?;
 
-    for (name, profile) in &config.images {
-        let to_index = node_map[name];
-        for dep in &profile.depends_on {
-            if let Some(&from_index) = node_map.get(dep) {
-                graph.add_edge(from_index, to_index, ());
-            } else {
-                bail!(
-                    "Image '{}' depends on '{}', which is not defined.",
-                    name,
-                    dep
-                );
-            }
-        }
-    }
-
-    // 3. Resolve all dependencies for the selected targets
-    let mut build_selection = BTreeSet::new();
-    let mut reversed_graph = graph.clone();
-    reversed_graph.reverse();
-
-    for target_name in &targets_to_build {
-        if !node_map.contains_key(target_name) {
-            bail!("Image '{}' not found in deck.toml", target_name);
-        }
-        let start_node = node_map[target_name];
-
-        // Traverse upwards (dependencies) in the original graph
-        // by traversing downwards in the reversed graph.
-        let mut dfs = petgraph::visit::Dfs::new(&reversed_graph, start_node);
-        while let Some(nx) = dfs.next(&reversed_graph) {
-            build_selection.insert(graph[nx].clone());
-        }
-    }
-
-    // 4. Topologically Sort the Graph of all dependencies
-    let sorted_nodes = match toposort(&graph, None) {
-        Ok(nodes) => nodes,
-        Err(cycle) => bail!(
-            "Circular dependency detected! Cycle includes: {}",
-            graph[cycle.node_id()].clone()
-        ),
-    };
-
-    // Filter the sorted list to only include the nodes we need to build
-    let build_plan: Vec<String> = sorted_nodes
-        .into_iter()
-        .map(|node_index| graph[node_index].clone())
-        .filter(|name| build_selection.contains(name))
-        .collect();
-
-    if build_plan.is_empty() {
-        println!("No images to build.");
+    if plan.stages.is_empty() {
+        println!("Nothing to build.");
         return Ok(());
     }
 
-    // 5. Execute Build Plan
-    println!("🚀 Build plan ({} targets):", build_plan.len());
-    for (i, name) in build_plan.iter().enumerate() {
-        println!("   {}. {}", i + 1, name);
-    }
-    println!();
-
     let new_locks = Mutex::new(BTreeMap::new());
-    let build_errors = Mutex::new(Vec::<String>::new());
 
-    let mut staged_plan: Vec<Vec<String>> = Vec::new();
-    let mut built_nodes = BTreeSet::new();
-
-    let mut plan_clone = build_plan.clone();
-    while !plan_clone.is_empty() {
-        let mut current_stage = Vec::new();
-        let mut next_plan = Vec::new();
-
-        for name in plan_clone {
-            let profile = &config.images[&name];
-            let all_deps_built = profile
-                .depends_on
-                .iter()
-                .all(|dep| built_nodes.contains(dep));
-
-            if all_deps_built {
-                current_stage.push(name.clone());
-            } else {
-                next_plan.push(name.clone());
-            }
-        }
-
-        if current_stage.is_empty() && !next_plan.is_empty() {
-            return Err(anyhow!(
-                "Failed to create build stages. Check for logical error in dependency resolution."
-            ));
-        }
-
-        staged_plan.push(current_stage);
-        for name in staged_plan.last().unwrap() {
-            built_nodes.insert(name.clone());
-        }
-        plan_clone = next_plan;
-    }
-
-    for (i, stage) in staged_plan.iter().enumerate() {
+    for (i, stage) in plan.stages.iter().enumerate() {
         println!("\n-- Stage {} --", i + 1);
 
-        let stage_results: Vec<Result<(String, BuildResult)>> = stage
+        let results: Vec<Result<(String, BuildResult)>> = stage
             .par_iter()
             .map(|name| {
-                let profile = &config.images[name];
-                let tag_to_use = args.tag.as_deref().unwrap_or(&profile.local_tag);
-
-                let dockerfile_path = root.join(&profile.path);
-                let context_dir = root.join(&profile.context);
+                let profile = &ctx.config.images[name];
+                let tag = args.tag.as_deref().unwrap_or(&profile.local_tag);
 
                 let opts = BuildOptions {
-                    dockerfile_path: &dockerfile_path,
-                    context_dir: &context_dir,
-                    target_tag: tag_to_use,
+                    dockerfile_path: &ctx.absolute_path(&profile.path),
+                    context_dir: &ctx.absolute_path(&profile.context),
+                    target_tag: tag,
                 };
 
-                println!(
-                    "Building: {} ({}) with tag '{}'",
-                    name, profile.path, tag_to_use
-                );
-                engine
-                    .build(name, opts)
-                    .map(|res| (name.clone(), res))
-                    .map_err(|e| {
-                        eprintln!("❌ Build failed for {}: {}", name, e);
-                        e
-                    })
+                engine.build(name, opts).map(|res| (name.clone(), res))
             })
             .collect();
 
-        for result in stage_results {
-            match result {
-                Ok((name, res)) => {
-                    let lock_profile = LockImageProfile {
-                        digest: res.digest,
-                        local_ref: res.local_ref,
-                    };
-                    new_locks.lock().unwrap().insert(name, lock_profile);
-                }
-                Err(e) => {
-                    build_errors.lock().unwrap().push(e.to_string());
-                }
-            }
-        }
-
-        let errors = build_errors.lock().unwrap();
-        if !errors.is_empty() {
-            bail!(
-                "Build failed in Stage {}.\nErrors:\n - {}",
-                i + 1,
-                errors.join("\n - ")
+        for res in results {
+            let (name, build_res) = res?;
+            new_locks.lock().unwrap().insert(
+                name,
+                LockImageProfile {
+                    digest: build_res.digest,
+                    local_ref: build_res.local_ref,
+                },
             );
         }
     }
 
-    // 6. Update Lock File
     if !args.no_lock {
-        let mut lock_data = load_lock(&root).unwrap_or_default();
-        lock_data.images.extend(new_locks.into_inner().unwrap());
-        lock_data
+        ctx.lock.images.extend(new_locks.into_inner().unwrap());
+        ctx.lock
             .images
-            .retain(|name, _| config.images.contains_key(name));
-        save_lock(&root, &lock_data)?;
+            .retain(|k, _| ctx.config.images.contains_key(k));
+        ctx.save_lock()?;
         println!("\n🔒 deck.lock updated.");
-    } else {
-        println!("\n--no-lock specified, skipping lock file update.");
     }
 
     Ok(())
