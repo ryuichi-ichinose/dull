@@ -51,6 +51,8 @@ pub struct BuildArgs {
     pub no_lock: bool,
     #[arg(long)]
     pub tag: Option<String>,
+    #[arg(short = 'j', long)]
+    pub jobs: Option<usize>,
 }
 
 #[derive(Args)]
