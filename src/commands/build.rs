@@ -65,6 +65,7 @@ pub fn run_build(
                     LockImageProfile {
                         digest: build_res.digest,
                         local_ref: build_res.local_ref,
+                        registry_digests: BTreeMap::new(), // 空のマップで初期化
                     },
                 );
             }
