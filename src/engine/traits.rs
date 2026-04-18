@@ -24,12 +24,5 @@ pub struct RegistryAuth<'a> {
 pub trait ContainerEngine: Sync + Send {
     fn login(&self, registry_url: &str, auth: &RegistryAuth) -> Result<()>;
     fn build(&self, name: &str, opts: BuildOptions) -> Result<BuildResult>;
-    fn push(
-        &self,
-        registry: &str,
-        name: &str,
-        digest: &str,
-        tag: &str,
-        insecure: bool,
-    ) -> Result<()>;
+    fn push(&self, local_ref: &str, destination: &str) -> anyhow::Result<String>;
 }

@@ -38,10 +38,12 @@ pub struct DeckConfig {
     pub images: BTreeMap<String, ImageProfile>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LockImageProfile {
     pub digest: String,
     pub local_ref: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub registry_digests: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
