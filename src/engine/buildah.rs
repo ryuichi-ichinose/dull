@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, bail};
+use std::fs;
 use std::process::Command;
+use tempfile::NamedTempFile;
 
 use crate::engine::traits::{BuildOptions, BuildResult, ContainerEngine, RegistryAuth};
 
@@ -93,30 +95,26 @@ impl ContainerEngine for BuildahEngine {
         Ok(BuildResult { digest, local_ref })
     }
 
-    fn push(
-        &self,
-        registry: &str,
-        name: &str,
-        digest: &str,
-        tag: &str,
-        insecure: bool,
-    ) -> Result<()> {
-        let dest = format!("docker://{}/{}:{}", registry, name, tag);
-        println!("Pushing Locked Image: {} -> {}", name, dest);
-        println!("   (Source Digest: {})", digest);
+    fn push(&self, local_ref: &str, destination: &str) -> anyhow::Result<String> {
+        let digest_file = NamedTempFile::new().context("Failed to create temp file for digest")?;
+        let digest_path = digest_file.path().to_str().unwrap();
 
-        let mut cmd = Command::new("buildah");
-        cmd.arg("push");
-        if insecure {
-            cmd.arg("--tls-verify=false");
-        }
-        cmd.arg(digest).arg(&dest);
-
-        let status = cmd.status().context("Buildah push failed")?;
+        let status = Command::new("buildah")
+            .arg("push")
+            .arg("--digestfile")
+            .arg(digest_path) // 結果をこのファイルに書き込ませる
+            .arg(local_ref)
+            .arg(destination)
+            .status()
+            .context("Failed to execute buildah push")?;
 
         if !status.success() {
-            bail!("Push failed for {}", name);
+            anyhow::bail!("Failed to push image to {}", destination);
         }
-        Ok(())
+
+        // 一時ファイルから純粋なダイジェスト文字列だけを読み取る
+        let digest = fs::read_to_string(digest_path)?.trim().to_string();
+
+        Ok(digest)
     }
 }
