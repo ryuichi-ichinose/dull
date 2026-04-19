@@ -32,7 +32,7 @@ pub struct ProjectConfig {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct DeckConfig {
+pub struct DullConfig {
     pub project: Option<ProjectConfig>,
     #[serde(default)]
     pub images: BTreeMap<String, ImageProfile>,
@@ -47,15 +47,15 @@ pub struct LockImageProfile {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
-pub struct DeckLock {
+pub struct DullLock {
     pub images: BTreeMap<String, LockImageProfile>,
 }
 
 // 配管に流すためのデータパック
 pub struct ProjectContext {
     pub root: PathBuf,
-    pub config: DeckConfig,
-    pub lock: DeckLock,
+    pub config: DullConfig,
+    pub lock: DullLock,
 }
 
 // --- I/O ヘルパー (境界) ---
@@ -72,14 +72,14 @@ pub fn load_project_context() -> Result<ProjectContext> {
     };
 
     let config_content = fs::read_to_string(root.join("dull.toml"))?;
-    let config: DeckConfig = toml::from_str(&config_content)?;
+    let config: DullConfig = toml::from_str(&config_content)?;
 
     let lock_path = root.join("dull.lock");
     let lock = if lock_path.exists() {
         let content = fs::read_to_string(&lock_path)?;
         serde_json::from_str(&content).context("Failed to parse dull.lock")?
     } else {
-        DeckLock::default()
+        DullLock::default()
     };
 
     Ok(ProjectContext { root, config, lock })
@@ -110,7 +110,7 @@ pub fn save_lock(ctx: &ProjectContext) -> Result<()> {
 }
 
 // initなどコンテキスト外でも使用する低レベルヘルパー
-pub fn save_config_file(p: &Path, c: &DeckConfig) -> Result<()> {
+pub fn save_config_file(p: &Path, c: &DullConfig) -> Result<()> {
     let content = toml::to_string_pretty(c)?;
     write_atomic(p, &content)
 }
