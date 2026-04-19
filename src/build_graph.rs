@@ -1,4 +1,4 @@
-use crate::config::DeckConfig;
+use crate::config::DullConfig;
 use anyhow::{Context, Result};
 use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
@@ -9,7 +9,7 @@ pub struct BuildPlan {
 }
 
 // 複雑なアルゴリズムは、状態を持たない純粋な関数に閉じ込める
-pub fn compute_plan(config: &DeckConfig, targets: &BTreeSet<String>) -> Result<BuildPlan> {
+pub fn compute_plan(config: &DullConfig, targets: &BTreeSet<String>) -> Result<BuildPlan> {
     let mut graph = DiGraph::<String, ()>::new();
     let mut node_map = HashMap::new();
 
@@ -56,7 +56,7 @@ pub fn compute_plan(config: &DeckConfig, targets: &BTreeSet<String>) -> Result<B
     })
 }
 
-fn compute_stages(config: &DeckConfig, plan: Vec<String>) -> Vec<Vec<String>> {
+fn compute_stages(config: &DullConfig, plan: Vec<String>) -> Vec<Vec<String>> {
     let mut stages = Vec::new();
     let mut built = BTreeSet::new();
     let mut remaining = plan;
