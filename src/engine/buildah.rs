@@ -51,7 +51,7 @@ impl ContainerEngine for BuildahEngine {
     fn build(&self, name: &str, opts: BuildOptions) -> Result<BuildResult> {
         let local_ref = format!("localhost/{}:{}", name, opts.target_tag);
 
-        // イメージIDを確実に受け取るためのファイル
+        // Persistent file to capture built image ID
         let iid_file = NamedTempFile::new().context("Failed to create temp iidfile")?;
         let iid_path = iid_file.path().to_str().unwrap();
 
@@ -73,14 +73,14 @@ impl ContainerEngine for BuildahEngine {
             .spawn()
             .context("Failed to spawn buildah")?;
 
-        // ログファイルとエラーバッファ（直近20行）の準備
+        // Initialize log file and ring buffer for errors
         let log_dir = std::path::Path::new(".dull/logs");
         fs::create_dir_all(log_dir).context("Failed to create log directory")?;
         let mut log_file = File::create(log_dir.join(format!("{}.log", name)))
             .with_context(|| format!("Failed to create log file for {}", name))?;
         let mut error_buffer = VecDeque::with_capacity(20);
 
-        // stdout/stderr を読み取りログに流す
+        // Capture stdout/stderr concurrently via channel to avoid deadlocks
         let stdout = child.stdout.take().context("Failed to take stdout")?;
         let stderr = child.stderr.take().context("Failed to take stderr")?;
 
@@ -89,31 +89,26 @@ impl ContainerEngine for BuildahEngine {
         let tx_out = tx.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
-            for line in reader.lines() {
-                if let Ok(l) = line {
-                    let _ = tx_out.send(l);
-                }
+            for line in reader.lines().filter_map(|l| l.ok()) {
+                let _ = tx_out.send(line);
             }
         });
 
         let tx_err = tx.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
-            for line in reader.lines() {
-                if let Ok(l) = line {
-                    let _ = tx_err.send(l);
-                }
+            for line in reader.lines().filter_map(|l| l.ok()) {
+                let _ = tx_err.send(line);
             }
         });
 
-        // 全てのスレッドの送信側がドロップされるまで受信を続ける
         drop(tx);
 
         while let Ok(line) = rx.recv() {
-            // 1. ログファイルに書き出す
+            // Write to log file
             writeln!(log_file, "{}", line)?;
 
-            // 2. プログレスバーのメッセージを更新（もしあれば）
+            // Update progress bar message
             if let Some(ref pb) = opts.progress_bar {
                 let msg = if line.len() > 50 {
                     format!("{}...", &line[..47])
@@ -123,7 +118,7 @@ impl ContainerEngine for BuildahEngine {
                 pb.set_message(msg);
             }
 
-            // 3. リングバッファに保持
+            // Keep track of recent lines for error reporting
             if error_buffer.len() == 20 {
                 error_buffer.pop_front();
             }
@@ -145,10 +140,10 @@ impl ContainerEngine for BuildahEngine {
             );
         }
 
-        // 1. まずはイメージIDをファイルから読み取る
+        // Read image ID from file
         let image_id = fs::read_to_string(iid_path)?.trim().to_string();
 
-        // 2. そのIDを元に「ローカルでの」ダイジェストを取得する
+        // Retrieve full digest for the built image
         let digest_output = Command::new("buildah")
             .arg("images")
             .arg("--no-trunc")
@@ -181,7 +176,7 @@ impl ContainerEngine for BuildahEngine {
         let status = Command::new("buildah")
             .arg("push")
             .arg("--digestfile")
-            .arg(digest_path) // 結果をこのファイルに書き込ませる
+            .arg(digest_path)
             .arg(local_ref)
             .arg(destination)
             .status()
@@ -191,9 +186,7 @@ impl ContainerEngine for BuildahEngine {
             anyhow::bail!("Failed to push image to {}", destination);
         }
 
-        // 一時ファイルから純粋なダイジェスト文字列だけを読み取る
         let digest = fs::read_to_string(digest_path)?.trim().to_string();
-
         Ok(digest)
     }
 }
