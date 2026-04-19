@@ -1,14 +1,20 @@
-use crate::config::DullConfig;
+use crate::config::{DullConfig, ImageProfile};
 use anyhow::{Context, Result};
 use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
 use std::collections::{BTreeSet, HashMap};
 
-pub struct BuildPlan {
-    pub stages: Vec<Vec<String>>,
+pub struct BuildTask {
+    pub name: String,
+    pub profile: ImageProfile,
+    pub dependencies: Vec<String>,
 }
 
-// 複雑なアルゴリズムは、状態を持たない純粋な関数に閉じ込める
+pub struct BuildPlan {
+    pub tasks: Vec<BuildTask>,
+}
+
+// Compute build plan with all necessary metadata for execution
 pub fn compute_plan(config: &DullConfig, targets: &BTreeSet<String>) -> Result<BuildPlan> {
     let mut graph = DiGraph::<String, ()>::new();
     let mut node_map = HashMap::new();
@@ -28,9 +34,7 @@ pub fn compute_plan(config: &DullConfig, targets: &BTreeSet<String>) -> Result<B
         }
     }
 
-    let sorted_indices = toposort(&graph, None)
-        .map_err(|cycle| anyhow::anyhow!("Circular dependency: {}", graph[cycle.node_id()]))?;
-
+    // Identify all required nodes for the given targets
     let mut build_selection = BTreeSet::new();
     let mut reversed = graph.clone();
     reversed.reverse();
@@ -45,32 +49,36 @@ pub fn compute_plan(config: &DullConfig, targets: &BTreeSet<String>) -> Result<B
         }
     }
 
-    let build_order: Vec<String> = sorted_indices
+    // Get a topologically sorted order of ALL images first
+    let sorted_indices = toposort(&graph, None).map_err(|cycle| {
+        anyhow::anyhow!(
+            "Circular dependency detected involving: {}",
+            graph[cycle.node_id()]
+        )
+    })?;
+
+    // Create tasks in topological order
+    let tasks = sorted_indices
         .into_iter()
         .map(|i| graph[i].clone())
         .filter(|name| build_selection.contains(name))
+        .map(|name| {
+            let profile = config.images[&name].clone();
+            // Filter dependencies to only include those that are also in the plan
+            let dependencies = profile
+                .depends_on
+                .iter()
+                .filter(|d| build_selection.contains(*d))
+                .cloned()
+                .collect();
+
+            BuildTask {
+                name,
+                profile,
+                dependencies,
+            }
+        })
         .collect();
 
-    Ok(BuildPlan {
-        stages: compute_stages(config, build_order),
-    })
-}
-
-fn compute_stages(config: &DullConfig, plan: Vec<String>) -> Vec<Vec<String>> {
-    let mut stages = Vec::new();
-    let mut built = BTreeSet::new();
-    let mut remaining = plan;
-
-    while !remaining.is_empty() {
-        let (current, next): (Vec<_>, Vec<_>) = remaining.into_iter().partition(|name| {
-            let profile = &config.images[name];
-            profile.depends_on.iter().all(|d| built.contains(d))
-        });
-        for name in &current {
-            built.insert(name.clone());
-        }
-        stages.push(current);
-        remaining = next;
-    }
-    stages
+    Ok(BuildPlan { tasks })
 }
