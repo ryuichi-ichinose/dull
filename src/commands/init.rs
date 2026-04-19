@@ -1,4 +1,4 @@
-use crate::config::{DeckConfig, ProjectConfig, save_config_file};
+use crate::config::{DullConfig, ProjectConfig, save_config_file};
 use anyhow::Result;
 use std::collections::BTreeMap;
 use std::env;
@@ -13,7 +13,7 @@ pub fn run_init() -> Result<()> {
     let mut registries = BTreeMap::new();
     registries.insert("default".into(), "localhost:5000/project".into());
 
-    let conf = DeckConfig {
+    let conf = DullConfig {
         project: Some(ProjectConfig {
             name: Some("my-project".into()),
             registries,
