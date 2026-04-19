@@ -49,50 +49,56 @@ impl ContainerEngine for BuildahEngine {
     fn build(&self, name: &str, opts: BuildOptions) -> Result<BuildResult> {
         let local_ref = format!("localhost/{}:{}", name, opts.target_tag);
 
-        println!("Building: {} ({:?})", name, opts.dockerfile_path);
+        // イメージIDを確実に受け取るためのファイル
+        let iid_file = NamedTempFile::new().context("Failed to create temp iidfile")?;
+        let iid_path = iid_file.path().to_str().unwrap();
 
-        let build_status = Command::new("buildah")
-            .arg("bud")
+        let mut cmd = Command::new("buildah");
+        cmd.arg("bud")
             .arg("--format=oci")
             .arg("--layers=true")
+            .arg("--iidfile")
+            .arg(iid_path) // --digestfile の代わりにこれを使え
             .arg("-f")
             .arg(opts.dockerfile_path)
             .arg("-t")
             .arg(&local_ref)
-            .arg(opts.context_dir)
-            .status()
-            .context("Buildah 'bud' execution failed")?;
+            .arg(opts.context_dir);
 
-        if !build_status.success() {
+        // TODO: ここで出力をキャプチャし、ログファイルへ流す実装を入れろ
+        let status = cmd.status().context("Buildah execution failed")?;
+
+        if !status.success() {
             bail!("Build failed for {}", name);
         }
 
-        println!("Inspecting image digest for {}", local_ref);
-        let inspect_output = Command::new("buildah")
-            .arg("inspect")
+        // 1. まずはイメージIDをファイルから読み取る
+        let image_id = fs::read_to_string(iid_path)?.trim().to_string();
+
+        // 2. そのIDを元に「ローカルでの」ダイジェストを取得する
+        // buildah images --no-trunc --format {{.Digest}} <ID>
+        let digest_output = Command::new("buildah")
+            .arg("images")
+            .arg("--no-trunc")
             .arg("--format")
-            .arg("{{.FromImageDigest}}")
-            .arg(&local_ref)
-            .output()
-            .context("Buildah 'inspect' execution failed")?;
+            .arg("{{.Digest}}")
+            .arg(&image_id)
+            .output()?;
 
-        if !inspect_output.status.success() {
-            bail!(
-                "Failed to inspect image digest for {}: {}",
-                local_ref,
-                String::from_utf8_lossy(&inspect_output.stderr)
-            );
-        }
+        let digest = String::from_utf8(digest_output.stdout)?.trim().to_string();
 
-        let digest = String::from_utf8(inspect_output.stdout)?.trim().to_string();
+        // もしローカルビルド直後でダイジェストが空なら、イメージIDを暫定ハッシュとして使う
+        let final_digest = if digest.is_empty() || digest == "<none>" {
+            image_id
+        } else {
+            digest
+        };
 
-        if digest.is_empty() {
-            bail!("Got empty digest for {}", local_ref);
-        }
-
-        println!("Built Digest: {}", digest);
-
-        Ok(BuildResult { digest, local_ref })
+        println!("✅ Built {}: {}", name, final_digest);
+        Ok(BuildResult {
+            digest: final_digest,
+            local_ref,
+        })
     }
 
     fn push(&self, local_ref: &str, destination: &str) -> anyhow::Result<String> {

@@ -30,7 +30,6 @@ pub fn run_build(
     }
 
     let threads = args.jobs.unwrap_or(0);
-
     let pool = ThreadPoolBuilder::new()
         .num_threads(threads)
         .build()
@@ -38,7 +37,7 @@ pub fn run_build(
 
     let new_locks = Mutex::new(BTreeMap::new());
 
-    pool.install(|| {
+    pool.install(|| -> Result<()> {
         for (i, stage) in plan.stages.iter().enumerate() {
             println!("\n-- Stage {} --", i + 1);
 
@@ -58,28 +57,48 @@ pub fn run_build(
                 })
                 .collect();
 
+            let mut success_count = 0;
+            let mut errors = Vec::new();
+
             for res in results {
-                let (name, build_res) = res.unwrap();
-                new_locks.lock().unwrap().insert(
-                    name,
-                    LockImageProfile {
-                        digest: build_res.digest,
-                        local_ref: build_res.local_ref,
-                        registry_digests: BTreeMap::new(), // 空のマップで初期化
-                    },
+                match res {
+                    Ok((name, build_res)) => {
+                        new_locks.lock().unwrap().insert(
+                            name,
+                            LockImageProfile {
+                                digest: build_res.digest,
+                                local_ref: build_res.local_ref,
+                                registry_digests: BTreeMap::new(),
+                            },
+                        );
+                        success_count += 1;
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Build error: {}", e);
+                        errors.push(e);
+                    }
+                }
+            }
+
+            if !errors.is_empty() {
+                bail!(
+                    "Stage {} failed with {} errors ({} succeeded)",
+                    i + 1,
+                    errors.len(),
+                    success_count
                 );
             }
         }
-    });
+        Ok(())
+    })?;
 
-    if !args.no_lock {
-        ctx.lock.images.extend(new_locks.into_inner().unwrap());
-        ctx.lock
-            .images
-            .retain(|k, _| ctx.config.images.contains_key(k));
-        save_lock(&ctx)?;
-        println!("\n🔒 dull.lock updated.");
-    }
+    ctx.lock.images.extend(new_locks.into_inner().unwrap());
+
+    ctx.lock
+        .images
+        .retain(|k, _| ctx.config.images.contains_key(k));
+    save_lock(&ctx)?;
+    println!("\n🔒 dull.lock updated.");
 
     Ok(())
 }
