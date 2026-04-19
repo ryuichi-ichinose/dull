@@ -3,6 +3,7 @@ use crate::cli::BuildArgs;
 use crate::config::{LockImageProfile, ProjectContext, save_lock};
 use crate::engine::{BuildOptions, BuildResult, ContainerEngine};
 use anyhow::{Context, Result, bail};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::ThreadPoolBuilder;
 use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -36,6 +37,7 @@ pub fn run_build(
         .context("Failed to build rayon thread pool")?;
 
     let new_locks = Mutex::new(BTreeMap::new());
+    let multi = MultiProgress::new();
 
     pool.install(|| -> Result<()> {
         for (i, stage) in plan.stages.iter().enumerate() {
@@ -47,13 +49,32 @@ pub fn run_build(
                     let profile = &ctx.config.images[name];
                     let tag = args.tag.as_deref().unwrap_or(&profile.local_tag);
 
+                    let pb = multi.add(ProgressBar::new_spinner());
+                    pb.set_style(
+                        ProgressStyle::default_spinner()
+                            .template("{spinner:.green} [{elapsed_precise}] {msg}")
+                            .unwrap(),
+                    );
+                    pb.set_message(format!("Building {}...", name));
+                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+
                     let opts = BuildOptions {
                         dockerfile_path: &ctx.root.join(&profile.path),
                         context_dir: &ctx.root.join(&profile.context),
                         target_tag: tag,
+                        progress_bar: Some(pb.clone()),
                     };
 
-                    engine.build(name, opts).map(|res| (name.clone(), res))
+                    let res = engine.build(name, opts).map(|res| (name.clone(), res));
+
+                    if res.is_ok() {
+                        pb.finish_with_message(format!("{} built", name));
+                    } else if let Err(ref e) = res {
+                        let _ = multi.println(format!("\nError building {}:\n{}", name, e));
+                        pb.abandon_with_message(format!("{} failed", name));
+                    }
+
+                    res
                 })
                 .collect();
 
@@ -74,7 +95,7 @@ pub fn run_build(
                         success_count += 1;
                     }
                     Err(e) => {
-                        eprintln!("❌ Build error: {}", e);
+                        // エラーは ProgressBar が表示済みなのでここでは eprintln しない
                         errors.push(e);
                     }
                 }
@@ -98,7 +119,7 @@ pub fn run_build(
         .images
         .retain(|k, _| ctx.config.images.contains_key(k));
     save_lock(&ctx)?;
-    println!("\n🔒 dull.lock updated.");
+    println!("\ndull.lock updated.");
 
     Ok(())
 }
