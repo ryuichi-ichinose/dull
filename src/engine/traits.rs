@@ -9,7 +9,7 @@ pub struct BuildOptions<'a> {
     pub progress_bar: Option<indicatif::ProgressBar>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BuildResult {
     pub digest: String,
     pub local_ref: String,

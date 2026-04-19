@@ -8,25 +8,28 @@ use crate::cli::{Cli, Commands};
 use crate::engine::BuildahEngine;
 use anyhow::Result;
 use clap::Parser;
+use std::sync::Arc;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let engine = BuildahEngine::new()?;
+    let engine = Arc::new(BuildahEngine::new()?);
 
+    // Specialized handling for init command (root-less)
     if let Commands::Init = cli.command {
         return commands::init::run_init();
     }
 
-    // ここで唯一の「世界のロード」を行う
+    // Single point of project context loading
     let ctx = config::load_project_context()?;
 
-    // 各コマンド（配管）へデータを流し込む
+    // Dispatch to subcommands
     match cli.command {
         Commands::Init => unreachable!(),
         Commands::Scan => commands::scan::run_scan(ctx),
-        Commands::Login(args) => commands::registry::run_login(&engine, ctx, args),
+        Commands::Login(args) => commands::registry::run_login(engine.as_ref(), ctx, args),
         Commands::Registry(args) => commands::registry::run_registry(ctx, args.action),
-        Commands::Build(args) => commands::build::run_build(&engine, ctx, args),
-        Commands::Push(args) => commands::push::run_push(&engine, ctx, args),
+        Commands::Build(args) => commands::build::run_build(engine, ctx, args).await,
+        Commands::Push(args) => commands::push::run_push(engine.as_ref(), ctx, args),
     }
 }
