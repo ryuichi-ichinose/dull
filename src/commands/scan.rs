@@ -1,25 +1,23 @@
 use crate::config::{ImageProfile, ProjectContext, save_config};
 use anyhow::Result;
+use ignore::WalkBuilder;
 use std::collections::BTreeMap;
-use walkdir::WalkDir;
 
 pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
     let mut disk_images = BTreeMap::new();
     println!("Scanning for Containerfiles in {:?}", ctx.root);
 
-    for entry in WalkDir::new(&ctx.root).into_iter().filter_map(|e| e.ok()) {
-        if !entry.file_type().is_file() {
+    for entry in WalkBuilder::new(&ctx.root).build().filter_map(|e| e.ok()) {
+        if !entry.file_type().map_or(false, |ft| ft.is_file()) {
             continue;
         }
 
-        let fname = entry.file_name().to_string_lossy();
+        let path = entry.path();
+        let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
         if fname == "Dockerfile" || fname == "Containerfile" || fname.ends_with(".Containerfile") {
-            let rel_path = entry
-                .path()
-                .strip_prefix(&ctx.root)?
-                .to_string_lossy()
-                .to_string();
-            let parent = entry.path().parent().unwrap_or(&ctx.root);
+            let rel_path = path.strip_prefix(&ctx.root)?.to_string_lossy().to_string();
+            let parent = path.parent().unwrap_or(&ctx.root);
             let context_path = parent
                 .strip_prefix(&ctx.root)?
                 .to_string_lossy()
