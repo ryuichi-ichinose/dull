@@ -51,14 +51,11 @@ pub struct DullLock {
     pub images: BTreeMap<String, LockImageProfile>,
 }
 
-// 配管に流すためのデータパック
 pub struct ProjectContext {
     pub root: PathBuf,
     pub config: DullConfig,
     pub lock: DullLock,
 }
-
-// --- I/O ヘルパー (境界) ---
 
 pub fn load_project_context() -> Result<ProjectContext> {
     let mut curr = env::current_dir()?;
@@ -109,7 +106,6 @@ pub fn save_lock(ctx: &ProjectContext) -> Result<()> {
     write_atomic(&ctx.root.join("dull.lock"), &content)
 }
 
-// initなどコンテキスト外でも使用する低レベルヘルパー
 pub fn save_config_file(p: &Path, c: &DullConfig) -> Result<()> {
     let content = toml::to_string_pretty(c)?;
     write_atomic(p, &content)
