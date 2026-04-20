@@ -1,7 +1,38 @@
 use crate::config::{ImageProfile, ProjectContext, save_config};
-use anyhow::Result;
+use anyhow::{Result, bail};
 use ignore::WalkBuilder;
 use std::collections::BTreeMap;
+
+fn is_valid_image_name(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    // OCI repository name spec: [a-z0-9]+([._-][a-z0-9]+)*
+    let mut chars = name.chars().peekable();
+
+    // First char must be alphanumeric lowercase
+    if let Some(first) = chars.next() {
+        if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
+            return false;
+        }
+    }
+
+    let mut last_was_sep = false;
+    for c in chars {
+        if c.is_ascii_lowercase() || c.is_ascii_digit() {
+            last_was_sep = false;
+        } else if c == '.' || c == '_' || c == '-' {
+            if last_was_sep {
+                return false; // consecutive separators not allowed
+            }
+            last_was_sep = true;
+        } else {
+            return false; // invalid char (includes uppercase)
+        }
+    }
+
+    !last_was_sep // cannot end with separator
+}
 
 pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
     let mut disk_images = BTreeMap::new();
@@ -27,7 +58,17 @@ pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
                 "root".to_string()
             } else {
                 context_path.replace(std::path::MAIN_SEPARATOR, "-")
-            };
+            }
+            .to_lowercase();
+
+            if !is_valid_image_name(&name) {
+                bail!(
+                    "Invalid image name '{}' derived from path '{}'. \
+                     Image names must be OCI compliant (lowercase alphanumeric, dots, underscores, and dashes).",
+                    name,
+                    rel_path
+                );
+            }
 
             let context_str = if context_path.is_empty() {
                 ".".to_string()
