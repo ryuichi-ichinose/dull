@@ -22,6 +22,30 @@ impl BuildahEngine {
         }
         Ok(Self)
     }
+
+    async fn get_storage_tmp(&self) -> Result<std::path::PathBuf> {
+        let output = Command::new("buildah")
+            .args(["info", "--format", "{{.store.GraphRoot}}"])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            bail!("Failed to get buildah info");
+        }
+
+        let root_path = String::from_utf8(output.stdout)?.trim().to_string();
+        if root_path.is_empty() || root_path == "<no value>" {
+            bail!("Could not determine GraphRoot from buildah info");
+        }
+
+        let tmp_path = std::path::PathBuf::from(root_path).join("dull-tmp");
+
+        if !tmp_path.exists() {
+            fs::create_dir_all(&tmp_path).context("Failed to create dull-tmp in storage root")?;
+        }
+
+        Ok(tmp_path)
+    }
 }
 
 impl ContainerEngine for BuildahEngine {
@@ -58,10 +82,16 @@ impl ContainerEngine for BuildahEngine {
 
     async fn build(&self, name: &str, opts: BuildOptions<'_>) -> Result<BuildResult> {
         let local_ref = format!("localhost/{}:{}", name, opts.target_tag);
-        let iid_file = NamedTempFile::new().context("Failed to create temp iidfile")?;
+
+        // Get storage-local tmp directory for efficient rename(2)
+        let storage_tmp = self.get_storage_tmp().await?;
+        let iid_file = NamedTempFile::new_in(&storage_tmp)
+            .context("Failed to create temp iidfile in storage tmp")?;
         let iid_path = iid_file.path().to_str().unwrap();
 
         let mut child = Command::new("buildah")
+            .kill_on_drop(true)
+            .env("TMPDIR", &storage_tmp)
             .args([
                 "bud",
                 "--format=oci",
