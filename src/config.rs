@@ -2,7 +2,8 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
-use std::fs;
+use std::fs::{self, File};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 fn default_tag() -> String {
@@ -82,19 +83,32 @@ pub fn load_project_context() -> Result<ProjectContext> {
     Ok(ProjectContext { root, config, lock })
 }
 
+fn write_atomic(path: &Path, content: &str) -> Result<()> {
+    let tmp_path = path.with_extension("tmp");
+
+    let mut file = File::create(&tmp_path)
+        .with_context(|| format!("Failed to create temp file {:?}", tmp_path))?;
+    file.write_all(content.as_bytes())?;
+
+    file.sync_all()?;
+
+    fs::rename(&tmp_path, path)
+        .with_context(|| format!("Failed to atomic rename {:?} to {:?}", tmp_path, path))?;
+
+    Ok(())
+}
+
 pub fn save_config(ctx: &ProjectContext) -> Result<()> {
     save_config_file(&ctx.root.join("dull.toml"), &ctx.config)
 }
 
 pub fn save_lock(ctx: &ProjectContext) -> Result<()> {
     let content = serde_json::to_string_pretty(&ctx.lock)?;
-    fs::write(ctx.root.join("dull.lock"), content)?;
-    Ok(())
+    write_atomic(&ctx.root.join("dull.lock"), &content)
 }
 
 // initなどコンテキスト外でも使用する低レベルヘルパー
 pub fn save_config_file(p: &Path, c: &DeckConfig) -> Result<()> {
     let content = toml::to_string_pretty(c)?;
-    fs::write(p, content).with_context(|| format!("Failed to write config to {:?}", p))?;
-    Ok(())
+    write_atomic(p, &content)
 }
