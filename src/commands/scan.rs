@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use walkdir::WalkDir;
 
 pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
-    let mut new_found = BTreeMap::new();
+    let mut disk_images = BTreeMap::new();
     println!("Scanning for Containerfiles in {:?}", ctx.root);
 
     for entry in WalkDir::new(&ctx.root).into_iter().filter_map(|e| e.ok()) {
@@ -37,7 +37,7 @@ pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
                 context_path
             };
 
-            new_found.insert(
+            disk_images.insert(
                 name,
                 ImageProfile {
                     path: rel_path,
@@ -49,14 +49,23 @@ pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
         }
     }
 
-    if new_found.is_empty() {
-        println!("No Containerfiles found.");
-    } else {
-        for (k, v) in new_found {
-            ctx.config.images.entry(k).or_insert(v);
+    ctx.config.images.retain(|name, _| {
+        let exists = disk_images.contains_key(name);
+        if !exists {
+            println!("- Removed missing image: {}", name);
         }
-        save_config(&ctx)?;
-        println!("Updated dull.toml with found images.");
+        exists
+    });
+
+    for (name, profile) in disk_images {
+        ctx.config.images.entry(name.clone()).or_insert_with(|| {
+            println!("+ Found new image: {}", name);
+            profile
+        });
     }
+
+    save_config(&ctx)?;
+    println!("Updated dull.toml with scanned results.");
+
     Ok(())
 }
