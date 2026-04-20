@@ -2,11 +2,10 @@ use crate::cli::PushArgs;
 use crate::config::{ProjectContext, save_lock};
 use crate::engine::ContainerEngine;
 use anyhow::{Context, Result};
-use rayon::prelude::*;
-use std::sync::Mutex;
+use std::sync::Arc;
 
-pub fn run_push(
-    engine: &impl ContainerEngine,
+pub async fn run_push(
+    engine: Arc<impl ContainerEngine + 'static>,
     mut ctx: ProjectContext,
     args: PushArgs,
 ) -> Result<()> {
@@ -20,7 +19,6 @@ pub fn run_push(
         .get("default")
         .context("Default registry not configured")?;
 
-    // Determine target images
     let target_names: Vec<String> = if args.all {
         ctx.lock.images.keys().cloned().collect()
     } else {
@@ -33,48 +31,51 @@ pub fn run_push(
         registry_base
     );
 
-    // Buffer for updating lock file after parallel execution
-    let update_buffer = Mutex::new(Vec::new());
+    // Mutexは不要。JoinHandleのリストを持てば済む。
+    let mut handles = Vec::new();
 
-    // Parallel push to maximize network throughput
-    target_names.par_iter().for_each(|name| {
-        let lock_info = match ctx.lock.images.get(name) {
-            Some(info) => info,
+    for name in target_names {
+        let lock_info = match ctx.lock.images.get(&name) {
+            Some(info) => info.clone(),
             None => {
                 eprintln!("Warning: No lock entry for {}. Build it first.", name);
-                return;
+                continue;
             }
         };
 
         let local_tag = ctx
             .config
             .images
-            .get(name)
+            .get(&name)
             .map(|p| p.local_tag.as_str())
-            .unwrap_or("latest");
+            .unwrap_or("latest")
+            .to_string();
 
-        // Example: docker://registry.example.com/my-project/app1:latest
         let destination = format!("docker://{}/{}:{}", registry_base, name, local_tag);
+        let engine = Arc::clone(&engine);
+        let name_clone = name.clone();
 
-        println!("-> Pushing {}...", name);
-        match engine.push(&lock_info.local_ref, &destination) {
-            Ok(registry_digest) => {
-                println!("DONE: {} pushed. Digest: {}", name, registry_digest);
-                update_buffer
-                    .lock()
-                    .unwrap()
-                    .push((name.clone(), registry_digest));
+        handles.push(tokio::spawn(async move {
+            println!("-> Pushing {}...", name_clone);
+            match engine.push(&lock_info.local_ref, &destination).await {
+                Ok(registry_digest) => {
+                    println!("DONE: {} pushed. Digest: {}", name_clone, registry_digest);
+                    Ok((name_clone, registry_digest))
+                }
+                Err(e) => {
+                    eprintln!("FAIL: Failed to push {}: {}", name_clone, e);
+                    Err(e)
+                }
             }
-            Err(e) => {
-                eprintln!("FAIL: Failed to push {}: {}", name, e);
-            }
-        }
-    });
+        }));
+    }
 
-    let updates = update_buffer.into_inner().unwrap();
     let mut updated_count = 0;
-    for (name, digest) in updates {
-        if let Some(info) = ctx.lock.images.get_mut(&name) {
+    // 全てのアレイの完了を待ち、結果を順次処理する。ロックを取る必要など最初から無かったのだ。
+    for handle in handles {
+        if let Ok(Ok((name, digest))) = handle.await
+            && let Some(info) = ctx.lock.images.get_mut(&name)
+        {
             info.registry_digests.insert("default".to_string(), digest);
             updated_count += 1;
         }
