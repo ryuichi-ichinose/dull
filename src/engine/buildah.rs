@@ -42,6 +42,7 @@ impl ContainerEngine for BuildahEngine {
         cmd.arg(registry_url);
 
         let status = cmd
+            .kill_on_drop(true)
             .stdin(std::process::Stdio::inherit())
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
@@ -170,6 +171,7 @@ impl ContainerEngine for BuildahEngine {
         let digest_path = digest_file.path().to_str().unwrap();
 
         let status = Command::new("buildah")
+            .kill_on_drop(true)
             .arg("push")
             .arg("--digestfile")
             .arg(digest_path)
