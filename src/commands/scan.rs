@@ -8,13 +8,14 @@ fn is_valid_image_name(name: &str) -> bool {
         return false;
     }
     // OCI repository name spec: [a-z0-9]+([._-][a-z0-9]+)*
-    let mut chars = name.chars().peekable();
+    let mut chars = name.chars();
 
     // First char must be alphanumeric lowercase
-    if let Some(first) = chars.next() {
-        if !first.is_ascii_lowercase() && !first.is_ascii_digit() {
-            return false;
-        }
+    if let Some(first) = chars.next()
+        && !first.is_ascii_lowercase()
+        && !first.is_ascii_digit()
+    {
+        return false;
     }
 
     let mut last_was_sep = false;
@@ -39,7 +40,7 @@ pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
     println!("Scanning for Containerfiles in {:?}", ctx.root);
 
     for entry in WalkBuilder::new(&ctx.root).build().filter_map(|e| e.ok()) {
-        if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
 
