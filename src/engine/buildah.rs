@@ -23,7 +23,7 @@ impl BuildahEngine {
         Ok(Self)
     }
 
-    async fn get_storage_tmp(&self) -> Result<std::path::PathBuf> {
+    pub async fn get_storage_tmp(&self) -> Result<std::path::PathBuf> {
         let output = Command::new("buildah")
             .args(["info", "--format", "{{.store.GraphRoot}}"])
             .output()
@@ -38,10 +38,17 @@ impl BuildahEngine {
             bail!("Could not determine GraphRoot from buildah info");
         }
 
-        let tmp_path = std::path::PathBuf::from(root_path).join("dull-tmp");
+        let graph_root = std::path::PathBuf::from(root_path);
+        // Go up 2 levels: storage -> containers -> /var/lib (example)
+        let base_dir = graph_root
+            .parent()
+            .and_then(|p| p.parent())
+            .unwrap_or(&graph_root);
+
+        let tmp_path = base_dir.join("dull-tmp");
 
         if !tmp_path.exists() {
-            fs::create_dir_all(&tmp_path).context("Failed to create dull-tmp in storage root")?;
+            fs::create_dir_all(&tmp_path).context("Failed to create dull-tmp in storage base")?;
         }
 
         Ok(tmp_path)
@@ -217,5 +224,9 @@ impl ContainerEngine for BuildahEngine {
 
         let digest = fs::read_to_string(digest_path)?.trim().to_string();
         Ok(digest)
+    }
+
+    async fn get_storage_tmp(&self) -> Result<std::path::PathBuf> {
+        self.get_storage_tmp().await
     }
 }
