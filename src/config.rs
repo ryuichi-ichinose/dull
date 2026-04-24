@@ -82,7 +82,7 @@ pub fn load_project_context() -> Result<ProjectContext> {
     Ok(ProjectContext { root, config, lock })
 }
 
-fn write_atomic(path: &Path, content: &str) -> Result<()> {
+pub fn write_atomic(path: &Path, content: &str) -> Result<()> {
     let tmp_path = path.with_extension("tmp");
 
     let mut file = File::create(&tmp_path)
