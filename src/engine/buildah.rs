@@ -9,10 +9,13 @@ use tokio::process::Command;
 
 use crate::engine::traits::{BuildOptions, BuildResult, ContainerEngine, RegistryAuth};
 
-pub struct BuildahEngine;
+pub struct BuildahEngine {
+    storage_conf: std::path::PathBuf,
+    tmp_dir: std::path::PathBuf,
+}
 
 impl BuildahEngine {
-    pub fn new() -> Result<Self> {
+    pub fn new(project_root: &std::path::Path) -> Result<Self> {
         if std::process::Command::new("buildah")
             .arg("--version")
             .output()
@@ -20,38 +23,19 @@ impl BuildahEngine {
         {
             bail!("'buildah' command not found. Install it first.");
         }
-        Ok(Self)
-    }
 
-    pub async fn get_storage_tmp(&self) -> Result<std::path::PathBuf> {
-        let output = Command::new("buildah")
-            .args(["info", "--format", "{{.store.GraphRoot}}"])
-            .output()
-            .await?;
+        let dull_dir = project_root.join(".dull");
+        let storage_conf = dull_dir.join("storage.conf");
+        let tmp_dir = dull_dir.join("tmp");
 
-        if !output.status.success() {
-            bail!("Failed to get buildah info");
+        if !tmp_dir.exists() {
+            fs::create_dir_all(&tmp_dir).context("Failed to create tmp directory in .dull")?;
         }
 
-        let root_path = String::from_utf8(output.stdout)?.trim().to_string();
-        if root_path.is_empty() || root_path == "<no value>" {
-            bail!("Could not determine GraphRoot from buildah info");
-        }
-
-        let graph_root = std::path::PathBuf::from(root_path);
-        // Go up 2 levels: storage -> containers -> /var/lib (example)
-        let base_dir = graph_root
-            .parent()
-            .and_then(|p| p.parent())
-            .unwrap_or(&graph_root);
-
-        let tmp_path = base_dir.join("dull-tmp");
-
-        if !tmp_path.exists() {
-            fs::create_dir_all(&tmp_path).context("Failed to create dull-tmp in storage base")?;
-        }
-
-        Ok(tmp_path)
+        Ok(Self {
+            storage_conf,
+            tmp_dir,
+        })
     }
 }
 
@@ -60,7 +44,9 @@ impl ContainerEngine for BuildahEngine {
         println!("Logging into '{}'...", registry_url);
 
         let mut cmd = Command::new("buildah");
-        cmd.arg("login");
+        cmd.env("CONTAINERS_STORAGE_CONF", &self.storage_conf)
+            .env("TMPDIR", &self.tmp_dir)
+            .arg("login");
 
         if let Some(u) = auth.username {
             cmd.arg("-u").arg(u);
@@ -90,15 +76,14 @@ impl ContainerEngine for BuildahEngine {
     async fn build(&self, name: &str, opts: BuildOptions<'_>) -> Result<BuildResult> {
         let local_ref = format!("localhost/{}:{}", name, opts.target_tag);
 
-        // Get storage-local tmp directory for efficient rename(2)
-        let storage_tmp = self.get_storage_tmp().await?;
-        let iid_file = NamedTempFile::new_in(&storage_tmp)
+        let iid_file = NamedTempFile::new_in(&self.tmp_dir)
             .context("Failed to create temp iidfile in storage tmp")?;
         let iid_path = iid_file.path().to_str().unwrap();
 
         let mut child = Command::new("buildah")
             .kill_on_drop(true)
-            .env("TMPDIR", &storage_tmp)
+            .env("CONTAINERS_STORAGE_CONF", &self.storage_conf)
+            .env("TMPDIR", &self.tmp_dir)
             .args([
                 "bud",
                 "--format=oci",
@@ -179,6 +164,8 @@ impl ContainerEngine for BuildahEngine {
 
         let image_id = fs::read_to_string(iid_path)?.trim().to_string();
         let digest_output = Command::new("buildah")
+            .env("CONTAINERS_STORAGE_CONF", &self.storage_conf)
+            .env("TMPDIR", &self.tmp_dir)
             .arg("images")
             .arg("--no-trunc")
             .arg("--format")
@@ -204,11 +191,14 @@ impl ContainerEngine for BuildahEngine {
     }
 
     async fn push(&self, local_ref: &str, destination: &str) -> anyhow::Result<String> {
-        let digest_file = NamedTempFile::new().context("Failed to create temp file for digest")?;
+        let digest_file = NamedTempFile::new_in(&self.tmp_dir)
+            .context("Failed to create temp file for digest")?;
         let digest_path = digest_file.path().to_str().unwrap();
 
         let status = Command::new("buildah")
             .kill_on_drop(true)
+            .env("CONTAINERS_STORAGE_CONF", &self.storage_conf)
+            .env("TMPDIR", &self.tmp_dir)
             .arg("push")
             .arg("--digestfile")
             .arg(digest_path)
@@ -224,9 +214,5 @@ impl ContainerEngine for BuildahEngine {
 
         let digest = fs::read_to_string(digest_path)?.trim().to_string();
         Ok(digest)
-    }
-
-    async fn get_storage_tmp(&self) -> Result<std::path::PathBuf> {
-        self.get_storage_tmp().await
     }
 }
