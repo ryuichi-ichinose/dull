@@ -13,7 +13,6 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let engine = Arc::new(BuildahEngine::new()?);
 
     // Specialized handling for init command (root-less)
     if let Commands::Init = cli.command {
@@ -22,6 +21,7 @@ async fn main() -> Result<()> {
 
     // Single point of project context loading
     let ctx = config::load_project_context()?;
+    let engine = Arc::new(BuildahEngine::new(&ctx.root)?);
 
     // Dispatch to subcommands
     match cli.command {
