@@ -31,5 +31,6 @@ async fn main() -> Result<()> {
         Commands::Registry(args) => commands::registry::run_registry(ctx, args.action),
         Commands::Build(args) => commands::build::run_build(engine, ctx, args).await,
         Commands::Push(args) => commands::push::run_push(engine.clone(), ctx, args).await,
+        Commands::Shell => commands::shell::run_shell(ctx),
     }
 }
