@@ -4,7 +4,7 @@ use crate::engine::{ContainerEngine, RegistryAuth};
 use anyhow::{Context, Result};
 use std::collections::BTreeMap;
 
-pub fn run_login(
+pub async fn run_login(
     engine: &impl ContainerEngine,
     ctx: ProjectContext,
     args: LoginArgs,
@@ -25,7 +25,7 @@ pub fn run_login(
         extra_args: &args.extra_args,
     };
 
-    engine.login(registry_url, &auth)
+    engine.login(registry_url, &auth).await
 }
 
 pub fn run_registry(mut ctx: ProjectContext, action: RegistryAction) -> Result<()> {
