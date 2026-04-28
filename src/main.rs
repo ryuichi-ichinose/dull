@@ -33,5 +33,6 @@ async fn main() -> Result<()> {
         Commands::Push(args) => commands::push::run_push(engine.clone(), ctx, args).await,
         Commands::Shell => commands::shell::run_shell(ctx),
         Commands::Clean => commands::clean::run_clean(ctx),
+        Commands::Gc => commands::gc::run_gc(ctx),
     }
 }

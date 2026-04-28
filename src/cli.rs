@@ -17,6 +17,7 @@ pub enum Commands {
     Push(PushArgs),
     Shell,
     Clean,
+    Gc,
 }
 
 #[derive(Args)]
