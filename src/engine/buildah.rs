@@ -174,11 +174,29 @@ impl ContainerEngine for BuildahEngine {
             .output()
             .await?;
 
-        let digest = String::from_utf8(digest_output.stdout)?.trim().to_string();
-        let final_digest = if digest.is_empty() || digest == "<none>" {
-            image_id
-        } else {
-            digest
+        let digest_str = String::from_utf8(digest_output.stdout)?;
+
+        // Use an `Option` to strictly track whether a valid digest was found.
+        // Buildah may return multi-line output if multiple tags exist, so we
+        // iterate through the lines to extract the first actual digest.
+        let mut final_digest = None;
+
+        for line in digest_str.lines() {
+            let line = line.trim();
+            if !line.is_empty() && line != "<none>" {
+                final_digest = Some(line.to_string());
+                break;
+            }
+        }
+
+        // Enforce strict validation: abort if no valid digest could be retrieved.
+        let final_digest = match final_digest {
+            Some(d) => d,
+            None => anyhow::bail!(
+                "CRITICAL: Failed to retrieve a valid OCI digest for image ID {}.\nBuildah output was:\n{}",
+                image_id,
+                digest_str
+            ),
         };
 
         if opts.progress_bar.is_none() {
