@@ -15,6 +15,7 @@ pub enum Commands {
     Registry(RegistryArgs),
     Build(BuildArgs),
     Push(PushArgs),
+    Shell,
 }
 
 #[derive(Args)]
