@@ -1,6 +1,7 @@
 use crate::config::ProjectContext;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::env;
+use std::os::unix::process::CommandExt;
 use std::process::Command;
 
 pub fn run_shell(ctx: ProjectContext) -> Result<()> {
@@ -11,17 +12,14 @@ pub fn run_shell(ctx: ProjectContext) -> Result<()> {
 
     let project_name = ctx.config.project.name;
 
-    println!("Spawning dull shell for project: {}", project_name);
+    println!("Entering dull shell for project: {}", project_name);
 
     let mut cmd = Command::new(&shell);
-
     cmd.env("CONTAINERS_STORAGE_CONF", &storage_conf)
         .env("TMPDIR", &tmp_dir)
         .env("DULL_PROJECT_NAME", &project_name);
 
-    let mut child = cmd.spawn().context("Failed to spawn shell")?;
-    child.wait().context("Shell process encountered an error")?;
+    let err = cmd.exec();
 
-    println!("Exited dull shell.");
-    Ok(())
+    anyhow::bail!("Failed to exec shell: {}", err);
 }
