@@ -9,17 +9,7 @@ pub fn run_shell(ctx: ProjectContext) -> Result<()> {
     let storage_conf = dull_dir.join("storage.conf");
     let tmp_dir = dull_dir.join("tmp");
 
-    let project_name = ctx
-        .config
-        .project
-        .as_ref()
-        .and_then(|p| p.name.clone())
-        .unwrap_or_else(|| {
-            ctx.root
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "dull-project".to_string())
-        });
+    let project_name = ctx.config.project.name;
 
     println!("Spawning dull shell for project: {}", project_name);
 

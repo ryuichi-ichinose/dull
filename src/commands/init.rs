@@ -25,14 +25,15 @@ pub fn run_init() -> Result<()> {
         return Ok(());
     }
 
-    let mut registries = BTreeMap::new();
-    registries.insert("default".into(), "localhost:5000/project".into());
+    let dir_name = root
+        .file_name()
+        .and_then(|os_str| os_str.to_str())
+        .unwrap_or("default-project")
+        .to_string();
 
     let conf = DullConfig {
-        project: Some(ProjectConfig {
-            name: Some("my-project".into()),
-            registries,
-        }),
+        project: ProjectConfig { name: dir_name },
+        registries: BTreeMap::new(),
         images: BTreeMap::new(),
     };
 

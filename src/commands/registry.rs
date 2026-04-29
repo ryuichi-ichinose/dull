@@ -1,23 +1,19 @@
 use crate::cli::{LoginArgs, RegistryAction};
-use crate::config::{ProjectConfig, ProjectContext, save_config};
+use crate::config::{ProjectContext, RegistryProfile, save_config};
 use crate::engine::{ContainerEngine, RegistryAuth};
-use anyhow::{Context, Result};
-use std::collections::BTreeMap;
+use anyhow::Result;
 
 pub async fn run_login(
     engine: &impl ContainerEngine,
     ctx: ProjectContext,
     args: LoginArgs,
 ) -> Result<()> {
-    let registries = &ctx
-        .config
-        .project
-        .as_ref()
-        .context("Project config missing in dull.toml")?
-        .registries;
-
+    let registries = &ctx.config.registries;
     let target = args.registry.as_deref().unwrap_or("default");
-    let registry_url = registries.get(target).map(|s| s.as_str()).unwrap_or(target);
+    let registry_url = registries
+        .get(target)
+        .map(|r| r.url.as_str())
+        .unwrap_or(target);
 
     let auth = RegistryAuth {
         username: args.username.as_deref(),
@@ -29,33 +25,32 @@ pub async fn run_login(
 }
 
 pub fn run_registry(mut ctx: ProjectContext, action: RegistryAction) -> Result<()> {
-    let project = ctx.config.project.get_or_insert(ProjectConfig {
-        name: None,
-        registries: BTreeMap::new(),
-    });
-
     match action {
         RegistryAction::Add { name, url } => {
             let clean_url = url.trim_end_matches('/');
-            project
-                .registries
-                .insert(name.clone(), clean_url.to_string());
+            ctx.config.registries.insert(
+                name.clone(),
+                RegistryProfile {
+                    url: clean_url.to_string(),
+                },
+            );
             println!("Registry '{}' -> '{}'", name, clean_url);
         }
         RegistryAction::Rm { name } => {
-            if project.registries.remove(&name).is_some() {
+            if ctx.config.registries.remove(&name).is_some() {
                 println!("Removed '{}'", name);
             } else {
                 eprintln!("Registry '{}' not found.", name);
             }
         }
         RegistryAction::Ls => {
-            for (name, url) in &project.registries {
-                println!(" - {:<10} : {}", name, url);
+            for (name, profile) in &ctx.config.registries {
+                println!(" - {:<10} : {}", name, profile.url);
             }
             return Ok(());
         }
     }
+
     save_config(&ctx)?;
     Ok(())
 }

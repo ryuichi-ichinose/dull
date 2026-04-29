@@ -26,14 +26,19 @@ pub struct ImageProfile {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ProjectConfig {
-    pub name: Option<String>,
-    #[serde(default)]
-    pub registries: BTreeMap<String, String>,
+    pub name: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+pub struct RegistryProfile {
+    pub url: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DullConfig {
-    pub project: Option<ProjectConfig>,
+    pub project: ProjectConfig,
+    #[serde(default)]
+    pub registries: BTreeMap<String, RegistryProfile>,
     #[serde(default)]
     pub images: BTreeMap<String, ImageProfile>,
 }

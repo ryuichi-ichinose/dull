@@ -9,16 +9,15 @@ pub async fn run_push(
     mut ctx: ProjectContext,
     args: PushArgs,
 ) -> Result<()> {
-    let project = ctx
-        .config
-        .project
-        .as_ref()
-        .context("Project configuration missing")?;
-    let registry_base = project
-        .registries
-        .get("default")
-        .context("Default registry not configured")?;
+    let target_reg_name = args.registry.as_deref().unwrap_or("default");
 
+    let registry_profile = ctx
+        .config
+        .registries
+        .get(target_reg_name)
+        .with_context(|| format!("Registry '{}' not configured", target_reg_name))?;
+
+    let registry_base = &registry_profile.url;
     // Determine target images
     let target_names: Vec<String> = if args.all {
         ctx.lock.images.keys().cloned().collect()
