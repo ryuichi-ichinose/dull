@@ -7,6 +7,7 @@ use futures::future::{BoxFuture, FutureExt, Shared};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
 pub async fn run_build(
@@ -29,6 +30,15 @@ pub async fn run_build(
         return Ok(());
     }
 
+    let concurrency_limit = args.jobs.unwrap_or_else(|| {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+    });
+
+    println!("Starting build with max concurrency: {}", concurrency_limit);
+    let semaphore = Arc::new(Semaphore::new(concurrency_limit));
+
     let multi = Arc::new(MultiProgress::new());
     let root = Arc::new(ctx.root.clone());
     let build_tag = Arc::new(args.tag.clone());
@@ -44,6 +54,7 @@ pub async fn run_build(
         let root = Arc::clone(&root);
         let multi = Arc::clone(&multi);
         let build_tag = Arc::clone(&build_tag);
+        let semaphore = Arc::clone(&semaphore);
 
         let dep_futures: Vec<_> = task
             .dependencies
@@ -54,12 +65,18 @@ pub async fn run_build(
         let task_name = name.clone();
         let task_handle: JoinHandle<Result<BuildResult, String>> = tokio::spawn(async move {
             let name_for_log = task_name;
-            // Wait for dependencies to finish
+
+            // 1. Wait for dependencies to finish
             for dep_fut in dep_futures {
                 if let Err(e) = dep_fut.await {
                     return Err(format!("Dependency failed: {}", e));
                 }
             }
+
+            let _permit = semaphore
+                .acquire()
+                .await
+                .map_err(|_| "Semaphore closed".to_string())?;
 
             let pb = multi.add(ProgressBar::new_spinner());
             pb.set_style(
