@@ -80,17 +80,17 @@ pub async fn run_build(
             let pb_inner = pb.clone();
             let name_inner = name_for_log.clone();
 
-            let res = tokio::task::spawn_blocking(move || {
-                let opts = BuildOptions {
-                    dockerfile_path: &dockerfile_path,
-                    context_dir: &context_dir,
-                    target_tag: &tag_owned,
-                    progress_bar: Some(pb_inner),
-                };
-                engine.build(&name_inner, opts)
-            })
-            .await
-            .unwrap();
+            let res = engine
+                .build(
+                    &name_inner,
+                    BuildOptions {
+                        dockerfile_path: &dockerfile_path,
+                        context_dir: &context_dir,
+                        target_tag: &tag_owned,
+                        progress_bar: Some(pb_inner),
+                    },
+                )
+                .await;
 
             match res {
                 Ok(res) => {

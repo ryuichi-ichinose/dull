@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::future::Future;
 use std::path::Path;
 
 #[derive(Debug)]
@@ -23,7 +24,21 @@ pub struct RegistryAuth<'a> {
 }
 
 pub trait ContainerEngine: Sync + Send {
-    fn login(&self, registry_url: &str, auth: &RegistryAuth) -> Result<()>;
-    fn build(&self, name: &str, opts: BuildOptions) -> Result<BuildResult>;
-    fn push(&self, local_ref: &str, destination: &str) -> anyhow::Result<String>;
+    fn login<'a>(
+        &'a self,
+        registry_url: &'a str,
+        auth: &'a RegistryAuth<'a>,
+    ) -> impl Future<Output = Result<()>> + Send + 'a;
+
+    fn build<'a>(
+        &'a self,
+        name: &'a str,
+        opts: BuildOptions<'a>,
+    ) -> impl Future<Output = Result<BuildResult>> + Send + 'a;
+
+    fn push<'a>(
+        &'a self,
+        local_ref: &'a str,
+        destination: &'a str,
+    ) -> impl Future<Output = Result<String>> + Send + 'a;
 }
