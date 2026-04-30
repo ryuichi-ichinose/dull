@@ -103,15 +103,11 @@ pub fn write_atomic(path: &Path, content: &str) -> Result<()> {
 }
 
 pub fn save_config(ctx: &ProjectContext) -> Result<()> {
-    save_config_file(&ctx.root.join("dull.toml"), &ctx.config)
+    let content = toml::to_string_pretty(&ctx.config)?;
+    write_atomic(&ctx.root.join("dull.toml"), &content)
 }
 
 pub fn save_lock(ctx: &ProjectContext) -> Result<()> {
     let content = serde_json::to_string_pretty(&ctx.lock)?;
     write_atomic(&ctx.root.join("dull.lock"), &content)
-}
-
-pub fn save_config_file(p: &Path, c: &DullConfig) -> Result<()> {
-    let content = toml::to_string_pretty(c)?;
-    write_atomic(p, &content)
 }

@@ -1,4 +1,4 @@
-use crate::config::{DullConfig, ProjectConfig, save_config_file, write_atomic};
+use crate::config::{DullConfig, ProjectConfig, write_atomic};
 use anyhow::Result;
 use std::collections::BTreeMap;
 use std::env;
@@ -37,7 +37,9 @@ pub fn run_init() -> Result<()> {
         images: BTreeMap::new(),
     };
 
-    save_config_file(&config_path, &conf)?;
+    let toml_content = toml::to_string_pretty(&conf)?;
+    crate::config::write_atomic(&config_path, &toml_content)?;
+
     println!("Initialized dull.toml");
 
     // Initialize .dull environment
