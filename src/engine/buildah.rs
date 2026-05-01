@@ -74,8 +74,9 @@ impl ContainerEngine for BuildahEngine {
             .context("Failed to create temp iidfile in storage tmp")?;
         let iid_path = iid_file.path().to_str().unwrap();
 
-        let mut child = Command::new("buildah")
-            .kill_on_drop(true)
+        let mut cmd = Command::new("buildah");
+
+        cmd.kill_on_drop(true)
             .env("CONTAINERS_STORAGE_CONF", &self.paths.storage_conf)
             .env("TMPDIR", &self.paths.tmp_dir)
             .args([
@@ -84,7 +85,13 @@ impl ContainerEngine for BuildahEngine {
                 "--layers=true",
                 "--iidfile",
                 iid_path,
-            ])
+            ]);
+
+        for (k, v) in opts.build_args {
+            cmd.arg("--build-arg").arg(format!("{}={}", k, v));
+        }
+
+        let mut child = cmd
             .arg("-f")
             .arg(opts.dockerfile_path)
             .arg("-t")
@@ -94,7 +101,6 @@ impl ContainerEngine for BuildahEngine {
             .stderr(Stdio::piped())
             .spawn()
             .context("Failed to spawn buildah")?;
-
         let log_dir = self.paths.dull_dir.join("logs");
         fs::create_dir_all(&log_dir).context("Failed to create log directory")?;
         let mut log_file = File::create(log_dir.join(format!("{}.log", name)))

@@ -90,6 +90,7 @@ pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
                     depends_on: Vec::new(),
                     local_tag: "latest".to_string(),
                     context: context_str,
+                    args: std::collections::BTreeMap::new(),
                 },
             );
         }

@@ -104,6 +104,7 @@ pub async fn run_build(
                         dockerfile_path: &dockerfile_path,
                         context_dir: &context_dir,
                         target_tag: &tag_owned,
+                        build_args: &profile.args,
                         progress_bar: Some(pb_inner),
                     },
                 )

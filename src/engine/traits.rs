@@ -7,6 +7,7 @@ pub struct BuildOptions<'a> {
     pub dockerfile_path: &'a Path,
     pub context_dir: &'a Path,
     pub target_tag: &'a str,
+    pub build_args: &'a std::collections::BTreeMap<String, String>,
     pub progress_bar: Option<indicatif::ProgressBar>,
 }
 

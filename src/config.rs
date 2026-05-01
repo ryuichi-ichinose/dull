@@ -22,6 +22,8 @@ pub struct ImageProfile {
     pub local_tag: String,
     #[serde(default = "default_context")]
     pub context: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub args: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
