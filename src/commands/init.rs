@@ -44,8 +44,9 @@ pub fn run_init() -> Result<()> {
 
     // Initialize .dull environment
     let dull_dir = root.join(".dull");
-    let storage_dir = dull_dir.join("storage");
-    let storage_conf = dull_dir.join("storage.conf");
+    let containers_dir = dull_dir.join("containers");
+    let storage_dir = containers_dir.join("storage");
+    let storage_conf = containers_dir.join("storage.conf");
     let global_cache = "/var/lib/shared-container-cache";
 
     fs::create_dir_all(&storage_dir)?;

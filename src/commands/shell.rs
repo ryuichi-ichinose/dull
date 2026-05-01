@@ -6,9 +6,11 @@ use std::process::Command;
 
 pub fn run_shell(ctx: ProjectContext) -> Result<()> {
     let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+
     let dull_dir = ctx.root.join(".dull");
-    let storage_conf = dull_dir.join("storage.conf");
-    let tmp_dir = dull_dir.join("tmp");
+    let containers_dir = dull_dir.join("containers");
+    let storage_conf = containers_dir.join("storage.conf");
+    let tmp_dir = containers_dir.join("tmp");
 
     let project_name = ctx.config.project.name;
 

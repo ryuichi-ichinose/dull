@@ -4,7 +4,8 @@ use std::process::Command;
 
 pub fn run_clean(ctx: ProjectContext) -> Result<()> {
     let dull_dir = ctx.root.join(".dull");
-    let storage_conf = dull_dir.join("storage.conf");
+    let containers_dir = dull_dir.join("containers");
+    let storage_conf = containers_dir.join("storage.conf");
 
     if !storage_conf.exists() {
         println!("Nothing to clean. (.dull/storage.conf not found)");

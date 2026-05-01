@@ -5,7 +5,8 @@ use std::process::Command;
 
 pub fn run_gc(ctx: ProjectContext) -> Result<()> {
     let dull_dir = ctx.root.join(".dull");
-    let storage_conf = dull_dir.join("storage.conf");
+    let containers_dir = dull_dir.join("containers");
+    let storage_conf = containers_dir.join("storage.conf");
 
     if !storage_conf.exists() {
         println!("No storage configured. Run 'dull init' first.");

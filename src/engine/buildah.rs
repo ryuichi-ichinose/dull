@@ -23,14 +23,17 @@ impl BuildahEngine {
         {
             bail!("'buildah' command not found. Install it first.");
         }
-
         let dull_dir = project_root.join(".dull");
-        let storage_conf = dull_dir.join("storage.conf");
-        let tmp_dir = dull_dir.join("tmp");
+        let containers_dir = dull_dir.join("containers");
 
-        if !tmp_dir.exists() {
-            fs::create_dir_all(&tmp_dir).context("Failed to create tmp directory in .dull")?;
+        let storage_conf = containers_dir.join("storage.conf");
+        let tmp_dir = containers_dir.join("tmp");
+
+        if !storage_conf.exists() {
+            anyhow::bail!("Storage not configured. Run 'dull init' first.");
         }
+
+        std::fs::create_dir_all(&tmp_dir)?;
 
         Ok(Self {
             storage_conf,
