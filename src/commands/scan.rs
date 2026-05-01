@@ -37,9 +37,12 @@ fn is_valid_image_name(name: &str) -> bool {
 
 pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
     let mut disk_images = BTreeMap::new();
-    println!("Scanning for Containerfiles in {:?}", ctx.root);
+    println!("Scanning for Containerfiles in {:?}", ctx.paths.root);
 
-    for entry in WalkBuilder::new(&ctx.root).build().filter_map(|e| e.ok()) {
+    for entry in WalkBuilder::new(&ctx.paths.root)
+        .build()
+        .filter_map(|e| e.ok())
+    {
         if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
@@ -48,10 +51,13 @@ pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
         let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         if fname == "Dockerfile" || fname == "Containerfile" || fname.ends_with(".Containerfile") {
-            let rel_path = path.strip_prefix(&ctx.root)?.to_string_lossy().to_string();
-            let parent = path.parent().unwrap_or(&ctx.root);
+            let rel_path = path
+                .strip_prefix(&ctx.paths.root)?
+                .to_string_lossy()
+                .to_string();
+            let parent = path.parent().unwrap_or(&ctx.paths.root);
             let context_path = parent
-                .strip_prefix(&ctx.root)?
+                .strip_prefix(&ctx.paths.root)?
                 .to_string_lossy()
                 .to_string();
 

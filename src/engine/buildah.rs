@@ -1,3 +1,5 @@
+use crate::config::ProjectPaths;
+use crate::engine::traits::{BuildOptions, BuildResult, ContainerEngine, RegistryAuth};
 use anyhow::{Context, Result, bail};
 use std::collections::VecDeque;
 use std::fs::{self, File};
@@ -7,15 +9,12 @@ use tempfile::NamedTempFile;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-use crate::engine::traits::{BuildOptions, BuildResult, ContainerEngine, RegistryAuth};
-
 pub struct BuildahEngine {
-    storage_conf: std::path::PathBuf,
-    tmp_dir: std::path::PathBuf,
+    paths: ProjectPaths,
 }
 
 impl BuildahEngine {
-    pub fn new(project_root: &std::path::Path) -> Result<Self> {
+    pub fn new(paths: ProjectPaths) -> Result<Self> {
         if std::process::Command::new("buildah")
             .arg("--version")
             .output()
@@ -23,22 +22,14 @@ impl BuildahEngine {
         {
             bail!("'buildah' command not found. Install it first.");
         }
-        let dull_dir = project_root.join(".dull");
-        let containers_dir = dull_dir.join("containers");
 
-        let storage_conf = containers_dir.join("storage.conf");
-        let tmp_dir = containers_dir.join("tmp");
-
-        if !storage_conf.exists() {
+        if !paths.storage_conf.exists() {
             anyhow::bail!("Storage not configured. Run 'dull init' first.");
         }
 
-        std::fs::create_dir_all(&tmp_dir)?;
+        std::fs::create_dir_all(&paths.tmp_dir)?;
 
-        Ok(Self {
-            storage_conf,
-            tmp_dir,
-        })
+        Ok(Self { paths })
     }
 }
 
@@ -47,8 +38,8 @@ impl ContainerEngine for BuildahEngine {
         println!("Logging into '{}'...", registry_url);
 
         let mut cmd = Command::new("buildah");
-        cmd.env("CONTAINERS_STORAGE_CONF", &self.storage_conf)
-            .env("TMPDIR", &self.tmp_dir)
+        cmd.env("CONTAINERS_STORAGE_CONF", &self.paths.storage_conf)
+            .env("TMPDIR", &self.paths.tmp_dir)
             .arg("login");
 
         if let Some(u) = auth.username {
@@ -79,14 +70,14 @@ impl ContainerEngine for BuildahEngine {
     async fn build(&self, name: &str, opts: BuildOptions<'_>) -> Result<BuildResult> {
         let local_ref = format!("localhost/{}:{}", name, opts.target_tag);
 
-        let iid_file = NamedTempFile::new_in(&self.tmp_dir)
+        let iid_file = NamedTempFile::new_in(&self.paths.tmp_dir)
             .context("Failed to create temp iidfile in storage tmp")?;
         let iid_path = iid_file.path().to_str().unwrap();
 
         let mut child = Command::new("buildah")
             .kill_on_drop(true)
-            .env("CONTAINERS_STORAGE_CONF", &self.storage_conf)
-            .env("TMPDIR", &self.tmp_dir)
+            .env("CONTAINERS_STORAGE_CONF", &self.paths.storage_conf)
+            .env("TMPDIR", &self.paths.tmp_dir)
             .args([
                 "bud",
                 "--format=oci",
@@ -104,8 +95,8 @@ impl ContainerEngine for BuildahEngine {
             .spawn()
             .context("Failed to spawn buildah")?;
 
-        let log_dir = std::path::Path::new(".dull/logs");
-        fs::create_dir_all(log_dir).context("Failed to create log directory")?;
+        let log_dir = self.paths.dull_dir.join("logs");
+        fs::create_dir_all(&log_dir).context("Failed to create log directory")?;
         let mut log_file = File::create(log_dir.join(format!("{}.log", name)))
             .with_context(|| format!("Failed to create log file for {}", name))?;
         let mut error_buffer = VecDeque::with_capacity(20);
@@ -167,8 +158,8 @@ impl ContainerEngine for BuildahEngine {
 
         let image_id = fs::read_to_string(iid_path)?.trim().to_string();
         let digest_output = Command::new("buildah")
-            .env("CONTAINERS_STORAGE_CONF", &self.storage_conf)
-            .env("TMPDIR", &self.tmp_dir)
+            .env("CONTAINERS_STORAGE_CONF", &self.paths.storage_conf)
+            .env("TMPDIR", &self.paths.tmp_dir)
             .arg("images")
             .arg("--no-trunc")
             .arg("--format")
@@ -212,14 +203,14 @@ impl ContainerEngine for BuildahEngine {
     }
 
     async fn push(&self, local_ref: &str, destination: &str) -> anyhow::Result<String> {
-        let digest_file = NamedTempFile::new_in(&self.tmp_dir)
+        let digest_file = NamedTempFile::new_in(&self.paths.tmp_dir)
             .context("Failed to create temp file for digest")?;
         let digest_path = digest_file.path().to_str().unwrap();
 
         let status = Command::new("buildah")
             .kill_on_drop(true)
-            .env("CONTAINERS_STORAGE_CONF", &self.storage_conf)
-            .env("TMPDIR", &self.tmp_dir)
+            .env("CONTAINERS_STORAGE_CONF", &self.paths.storage_conf)
+            .env("TMPDIR", &self.paths.tmp_dir)
             .arg("push")
             .arg("--digestfile")
             .arg(digest_path)

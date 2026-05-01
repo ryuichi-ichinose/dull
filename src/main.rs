@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
 
     // Single point of project context loading
     let ctx = config::load_project_context()?;
-    let engine = Arc::new(BuildahEngine::new(&ctx.root)?);
+    let engine = Arc::new(BuildahEngine::new(ctx.paths.clone())?);
 
     // Dispatch to subcommands
     match cli.command {

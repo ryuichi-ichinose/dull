@@ -4,11 +4,7 @@ use std::collections::HashSet;
 use std::process::Command;
 
 pub fn run_gc(ctx: ProjectContext) -> Result<()> {
-    let dull_dir = ctx.root.join(".dull");
-    let containers_dir = dull_dir.join("containers");
-    let storage_conf = containers_dir.join("storage.conf");
-
-    if !storage_conf.exists() {
+    if !ctx.paths.storage_conf.exists() {
         println!("No storage configured. Run 'dull init' first.");
         return Ok(());
     }
@@ -26,7 +22,7 @@ pub fn run_gc(ctx: ProjectContext) -> Result<()> {
     println!("Found {} active images in dull.lock", active_hashes.len());
 
     let output = Command::new("buildah")
-        .env("CONTAINERS_STORAGE_CONF", &storage_conf)
+        .env("CONTAINERS_STORAGE_CONF", &ctx.paths.storage_conf)
         .args([
             "images",
             "--no-trunc",
@@ -88,7 +84,7 @@ pub fn run_gc(ctx: ProjectContext) -> Result<()> {
         args.extend(garbage_tags.iter().map(|s| s.as_str()));
 
         let status = Command::new("buildah")
-            .env("CONTAINERS_STORAGE_CONF", &storage_conf)
+            .env("CONTAINERS_STORAGE_CONF", &ctx.paths.storage_conf)
             .args(&args)
             .status()
             .context("Failed to execute buildah rmi for untagging")?;
@@ -112,7 +108,7 @@ pub fn run_gc(ctx: ProjectContext) -> Result<()> {
         args.extend(garbage_ids.iter().map(|s| s.as_str()));
 
         let status = Command::new("buildah")
-            .env("CONTAINERS_STORAGE_CONF", &storage_conf)
+            .env("CONTAINERS_STORAGE_CONF", &ctx.paths.storage_conf)
             .args(&args)
             .status()
             .context("Failed to execute buildah rmi")?;

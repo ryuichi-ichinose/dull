@@ -40,7 +40,7 @@ pub async fn run_build(
     let semaphore = Arc::new(Semaphore::new(concurrency_limit));
 
     let multi = Arc::new(MultiProgress::new());
-    let root = Arc::new(ctx.root.clone());
+    let root = Arc::new(ctx.paths.root.clone());
     let build_tag = Arc::new(args.tag.clone());
 
     let mut task_futures: HashMap<String, Shared<BoxFuture<'static, Result<BuildResult, String>>>> =
