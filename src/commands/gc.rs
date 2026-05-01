@@ -1,7 +1,18 @@
+// src/commands/gc.rs
 use crate::config::ProjectContext;
 use anyhow::{Context, Result};
+use serde::Deserialize;
 use std::collections::HashSet;
 use std::process::Command;
+
+// Defines the expected JSON structure from `buildah images --json`
+#[derive(Deserialize, Debug)]
+struct BuildahImage {
+    id: String,
+    digest: String,
+    #[serde(default)]
+    names: Vec<String>,
+}
 
 pub fn run_gc(ctx: ProjectContext) -> Result<()> {
     if !ctx.paths.storage_conf.exists() {
@@ -23,12 +34,7 @@ pub fn run_gc(ctx: ProjectContext) -> Result<()> {
 
     let output = Command::new("buildah")
         .env("CONTAINERS_STORAGE_CONF", &ctx.paths.storage_conf)
-        .args([
-            "images",
-            "--no-trunc",
-            "--format",
-            "{{.ID}}@{{.Digest}}@{{.Name}}:{{.Tag}}",
-        ])
+        .args(["images", "--json"])
         .output()
         .context("Failed to get images from buildah")?;
 
@@ -37,34 +43,42 @@ pub fn run_gc(ctx: ProjectContext) -> Result<()> {
         anyhow::bail!("Failed to execute buildah images:\n{}", stderr);
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let stdout_str = stdout_str.trim();
+
+    if stdout_str.is_empty() || stdout_str == "null" {
+        println!("No images found in local storage. Nothing to clean.");
+        return Ok(());
+    }
+
+    let buildah_images: Vec<BuildahImage> =
+        serde_json::from_str(stdout_str).context("Failed to parse buildah images JSON output")?;
 
     let mut garbage_ids = HashSet::new();
     let mut garbage_tags = HashSet::new();
 
-    for line in stdout.lines() {
-        let parts: Vec<&str> = line.split('@').collect();
-        if parts.len() >= 3 {
-            let id = parts[0];
-            let digest = parts[1];
-            let local_ref = parts[2];
+    for img in buildah_images {
+        // Normalize ID to handle inconsistencies in buildah output across versions
+        let id_full = if img.id.starts_with("sha256:") {
+            img.id.clone()
+        } else {
+            format!("sha256:{}", img.id)
+        };
 
-            // Normalize ID to handle inconsistencies in buildah output across versions
-            let id_with_prefix = if id.starts_with("sha256:") {
-                id.to_string()
-            } else {
-                format!("sha256:{}", id)
-            };
+        let is_known_entity = active_hashes.contains(&img.id)
+            || active_hashes.contains(&id_full)
+            || active_hashes.contains(&img.digest);
 
-            let is_known_entity = active_hashes.contains(id)
-                || active_hashes.contains(&id_with_prefix)
-                || active_hashes.contains(digest);
-
-            if !is_known_entity {
-                garbage_ids.insert(id.to_string());
-            } else if local_ref != "<none>:<none>" && !active_refs.contains(local_ref) {
-                // The underlying image is active, but this specific tag is not tracked.
-                garbage_tags.insert(local_ref.to_string());
+        if !is_known_entity {
+            garbage_ids.insert(img.id);
+        } else {
+            // The underlying image is active, but we must check for stray tags.
+            // Using JSON, untagged images simply have empty `names` arrays.
+            // We firmly filter out any unexpected placeholders just in case.
+            for name in img.names {
+                if !name.is_empty() && !name.contains("<none>") && !active_refs.contains(&name) {
+                    garbage_tags.insert(name);
+                }
             }
         }
     }
@@ -75,8 +89,6 @@ pub fn run_gc(ctx: ProjectContext) -> Result<()> {
     }
 
     // Phase 1: Untag stray tags first.
-    // Buildah does not have an `untag` command; we use `rmi` with the tag name.
-    // If the underlying image has other tags, `rmi` simply removes this specific tag.
     if !garbage_tags.is_empty() {
         println!("Found {} stray tags. Untagging...", garbage_tags.len());
 
@@ -97,6 +109,7 @@ pub fn run_gc(ctx: ProjectContext) -> Result<()> {
             eprintln!("Warning: Buildah failed to untag some images.");
         }
     }
+
     // Phase 2: Physically remove orphan images.
     if !garbage_ids.is_empty() {
         println!(
