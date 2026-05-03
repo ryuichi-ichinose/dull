@@ -38,7 +38,6 @@ pub async fn run_build(
 
     println!("Starting build with max concurrency: {}", concurrency_limit);
     let semaphore = Arc::new(Semaphore::new(concurrency_limit));
-
     let multi = Arc::new(MultiProgress::new());
     let root = Arc::new(ctx.paths.root.clone());
     let build_tag = Arc::new(args.tag.clone());
@@ -46,7 +45,6 @@ pub async fn run_build(
     let mut task_futures: HashMap<String, Shared<BoxFuture<'static, Result<BuildResult, String>>>> =
         HashMap::new();
 
-    // The plan.tasks are already topologically sorted by build_graph
     for task in plan.tasks {
         let name = task.name.clone();
         let profile = task.profile;
@@ -64,9 +62,6 @@ pub async fn run_build(
 
         let task_name = name.clone();
         let task_handle: JoinHandle<Result<BuildResult, String>> = tokio::spawn(async move {
-            let name_for_log = task_name;
-
-            // 1. Wait for dependencies to finish
             for dep_fut in dep_futures {
                 if let Err(e) = dep_fut.await {
                     return Err(format!("Dependency failed: {}", e));
@@ -84,7 +79,7 @@ pub async fn run_build(
                     .template("{spinner:.green} [{elapsed_precise}] {msg}")
                     .unwrap(),
             );
-            pb.set_message(format!("Building {}...", name_for_log));
+            pb.set_message(format!("Building {}...", task_name));
             pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
             let tag_owned = build_tag
@@ -95,16 +90,15 @@ pub async fn run_build(
             let dockerfile_path = root.join(&profile.path);
             let context_dir = root.join(&profile.context);
             let pb_inner = pb.clone();
-            let name_inner = name_for_log.clone();
 
             let res = engine
                 .build(
-                    &name_inner,
+                    &task_name,
                     BuildOptions {
                         dockerfile_path: &dockerfile_path,
                         context_dir: &context_dir,
                         target_tag: &tag_owned,
-                        build_args: &profile.args,
+                        build_args: &profile.args, // Injects parsed environment variables!
                         progress_bar: Some(pb_inner),
                     },
                 )
@@ -112,12 +106,12 @@ pub async fn run_build(
 
             match res {
                 Ok(res) => {
-                    pb.finish_with_message(format!("{} built", name_for_log));
+                    pb.finish_with_message(format!("{} built", task_name));
                     Ok(res)
                 }
                 Err(e) => {
-                    let _ = multi.println(format!("\nError building {}:\n{}", name_for_log, e));
-                    pb.abandon_with_message(format!("{} failed", name_for_log));
+                    let _ = multi.println(format!("\nError building {}:\n{}", task_name, e));
+                    pb.abandon_with_message(format!("{} failed", task_name));
                     Err(e.to_string())
                 }
             }
@@ -132,7 +126,6 @@ pub async fn run_build(
         );
     }
 
-    // Collecting results
     let mut build_errors = Vec::new();
     let mut new_locks = BTreeMap::new();
     let task_names: Vec<String> = task_futures.keys().cloned().collect();
