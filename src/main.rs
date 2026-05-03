@@ -31,8 +31,8 @@ async fn main() -> Result<()> {
         Commands::Registry(args) => commands::registry::run_registry(ctx, args.action),
         Commands::Build(args) => commands::build::run_build(engine, ctx, args).await,
         Commands::Push(args) => commands::push::run_push(engine, ctx, args).await,
-        Commands::Shell => commands::shell::run_shell(ctx),
-        Commands::Clean => commands::clean::run_clean(ctx),
-        Commands::Gc => commands::gc::run_gc(ctx),
+        Commands::Shell => commands::shell::run_shell(engine.as_ref(), ctx),
+        Commands::Clean => commands::clean::run_clean(engine.as_ref(), ctx).await,
+        Commands::Gc => commands::gc::run_gc(engine.as_ref(), ctx).await,
     }
 }

@@ -64,8 +64,8 @@ pub struct PushArgs {
     pub all: bool,
     #[arg(num_args = 1..)]
     pub images: Vec<String>,
-    #[arg(short, long, default_value = "latest")]
-    pub tag: String,
+    #[arg(short, long)]
+    pub tag: Option<String>,
     #[arg(short = 'r', long)]
     pub registry: Option<String>,
     #[arg(long)]

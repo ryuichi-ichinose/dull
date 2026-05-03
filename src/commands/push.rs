@@ -1,11 +1,11 @@
 use crate::cli::PushArgs;
 use crate::config::{ProjectContext, save_lock};
-use crate::engine::ContainerEngine;
+use crate::engine::BuildahEngine;
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
 pub async fn run_push(
-    engine: Arc<impl ContainerEngine + 'static>,
+    engine: Arc<BuildahEngine>,
     mut ctx: ProjectContext,
     args: PushArgs,
 ) -> Result<()> {

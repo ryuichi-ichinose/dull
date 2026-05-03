@@ -1,5 +1,3 @@
 mod buildah;
-mod traits;
 
-pub use self::buildah::BuildahEngine;
-pub use self::traits::{BuildOptions, BuildResult, ContainerEngine, RegistryAuth};
+pub use self::buildah::{BuildOptions, BuildResult, BuildahEngine, GcReport, RegistryAuth};

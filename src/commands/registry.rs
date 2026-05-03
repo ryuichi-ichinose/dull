@@ -1,13 +1,9 @@
 use crate::cli::{LoginArgs, RegistryAction};
 use crate::config::{ProjectContext, RegistryProfile, save_config};
-use crate::engine::{ContainerEngine, RegistryAuth};
+use crate::engine::{BuildahEngine, RegistryAuth};
 use anyhow::Result;
 
-pub async fn run_login(
-    engine: &impl ContainerEngine,
-    ctx: ProjectContext,
-    args: LoginArgs,
-) -> Result<()> {
+pub async fn run_login(engine: &BuildahEngine, ctx: ProjectContext, args: LoginArgs) -> Result<()> {
     let registries = &ctx.config.registries;
     let target = args.registry.as_deref().unwrap_or("default");
     let registry_url = registries

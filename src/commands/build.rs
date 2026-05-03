@@ -1,7 +1,7 @@
 use crate::build_graph::compute_plan;
 use crate::cli::BuildArgs;
 use crate::config::{LockImageProfile, ProjectContext, save_lock};
-use crate::engine::{BuildOptions, BuildResult, ContainerEngine};
+use crate::engine::{BuildOptions, BuildResult, BuildahEngine};
 use anyhow::{Result, bail};
 use futures::future::{BoxFuture, FutureExt, Shared};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -11,7 +11,7 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
 pub async fn run_build(
-    engine: Arc<impl ContainerEngine + 'static>,
+    engine: Arc<BuildahEngine>,
     mut ctx: ProjectContext,
     args: BuildArgs,
 ) -> Result<()> {

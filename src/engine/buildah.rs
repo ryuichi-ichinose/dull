@@ -1,16 +1,54 @@
 use crate::config::ProjectPaths;
-use crate::engine::traits::{BuildOptions, BuildResult, ContainerEngine, RegistryAuth};
 use anyhow::{Context, Result, bail};
-use std::collections::VecDeque;
+use serde::Deserialize;
+use std::collections::{HashSet, VecDeque};
 use std::fs::{self, File};
 use std::io::Write;
+use std::os::unix::process::CommandExt;
+use std::path::Path;
 use std::process::Stdio;
 use tempfile::NamedTempFile;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
+use tokio::process::Command as TokioCommand;
+
+#[derive(Debug)]
+pub struct BuildOptions<'a> {
+    pub dockerfile_path: &'a Path,
+    pub context_dir: &'a Path,
+    pub target_tag: &'a str,
+    pub build_args: &'a std::collections::BTreeMap<String, String>,
+    pub progress_bar: Option<indicatif::ProgressBar>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BuildResult {
+    pub digest: String,
+    pub local_ref: String,
+}
+
+#[derive(Debug)]
+pub struct RegistryAuth<'a> {
+    pub username: Option<&'a str>,
+    pub password: Option<&'a str>,
+    pub extra_args: &'a [String],
+}
+
+#[derive(Deserialize, Debug)]
+struct BuildahImage {
+    id: String,
+    digest: String,
+    #[serde(default)]
+    names: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct GcReport {
+    pub untagged: HashSet<String>,
+    pub removed_ids: HashSet<String>,
+}
 
 pub struct BuildahEngine {
-    paths: ProjectPaths,
+    pub paths: ProjectPaths,
 }
 
 impl BuildahEngine {
@@ -22,26 +60,34 @@ impl BuildahEngine {
         {
             bail!("'buildah' command not found. Install it first.");
         }
-
         if !paths.storage_conf.exists() {
-            anyhow::bail!("Storage not configured. Run 'dull init' first.");
+            bail!("Storage not configured. Run 'dull init' first.");
         }
-
-        std::fs::create_dir_all(&paths.tmp_dir)?;
-
+        fs::create_dir_all(&paths.tmp_dir)?;
         Ok(Self { paths })
     }
-}
 
-impl ContainerEngine for BuildahEngine {
-    async fn login(&self, registry_url: &str, auth: &RegistryAuth<'_>) -> Result<()> {
-        println!("Logging into '{}'...", registry_url);
-
-        let mut cmd = Command::new("buildah");
+    /// Core helper to ensure isolation: Injects necessary environment variables for Tokio commands
+    pub fn command(&self, subcmd: &str) -> TokioCommand {
+        let mut cmd = TokioCommand::new("buildah");
         cmd.env("CONTAINERS_STORAGE_CONF", &self.paths.storage_conf)
-            .env("TMPDIR", &self.paths.tmp_dir)
-            .arg("login");
+            .env("TMPDIR", &self.paths.tmp_dir);
+        if !subcmd.is_empty() {
+            cmd.arg(subcmd);
+        }
+        cmd
+    }
 
+    /// Core helper for synchronous std::process::Command (used for exec/shell)
+    pub fn std_command(&self, program: &str) -> std::process::Command {
+        let mut cmd = std::process::Command::new(program);
+        cmd.env("CONTAINERS_STORAGE_CONF", &self.paths.storage_conf)
+            .env("TMPDIR", &self.paths.tmp_dir);
+        cmd
+    }
+
+    pub async fn login(&self, registry_url: &str, auth: &RegistryAuth<'_>) -> Result<()> {
+        let mut cmd = self.command("login");
         if let Some(u) = auth.username {
             cmd.arg("-u").arg(u);
         }
@@ -49,44 +95,32 @@ impl ContainerEngine for BuildahEngine {
             cmd.arg("-p").arg(p);
         }
 
-        cmd.args(auth.extra_args);
-        cmd.arg(registry_url);
+        cmd.args(auth.extra_args).arg(registry_url);
 
         let status = cmd
             .kill_on_drop(true)
-            .stdin(std::process::Stdio::inherit())
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
             .status()
             .await?;
 
         if !status.success() {
             bail!("Login failed.");
         }
-        println!("Login succeeded.");
         Ok(())
     }
 
-    async fn build(&self, name: &str, opts: BuildOptions<'_>) -> Result<BuildResult> {
+    pub async fn build(&self, name: &str, opts: BuildOptions<'_>) -> Result<BuildResult> {
         let local_ref = format!("localhost/{}:{}", name, opts.target_tag);
-
-        let iid_file = NamedTempFile::new_in(&self.paths.tmp_dir)
-            .context("Failed to create temp iidfile in storage tmp")?;
+        let iid_file = NamedTempFile::new_in(&self.paths.tmp_dir)?;
         let iid_path = iid_file.path().to_str().unwrap();
 
-        let mut cmd = Command::new("buildah");
-
+        let mut cmd = self.command("bud");
         cmd.kill_on_drop(true)
-            .env("CONTAINERS_STORAGE_CONF", &self.paths.storage_conf)
-            .env("TMPDIR", &self.paths.tmp_dir)
-            .args([
-                "bud",
-                "--format=oci",
-                "--layers=true",
-                "--iidfile",
-                iid_path,
-            ]);
+            .args(["--format=oci", "--layers=true", "--iidfile", iid_path]);
 
+        // Inject build arguments resolved from config
         for (k, v) in opts.build_args {
             cmd.arg("--build-arg").arg(format!("{}={}", k, v));
         }
@@ -99,88 +133,60 @@ impl ContainerEngine for BuildahEngine {
             .arg(opts.context_dir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()
-            .context("Failed to spawn buildah")?;
+            .spawn()?;
+
         let log_dir = self.paths.dull_dir.join("logs");
-        fs::create_dir_all(&log_dir).context("Failed to create log directory")?;
-        let mut log_file = File::create(log_dir.join(format!("{}.log", name)))
-            .with_context(|| format!("Failed to create log file for {}", name))?;
+        fs::create_dir_all(&log_dir)?;
+        let mut log_file = File::create(log_dir.join(format!("{}.log", name)))?;
         let mut error_buffer = VecDeque::with_capacity(20);
 
-        let stdout = child.stdout.take().context("Failed to take stdout")?;
-        let stderr = child.stderr.take().context("Failed to take stderr")?;
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
 
         let mut stdout_reader = BufReader::new(stdout).lines();
         let mut stderr_reader = BufReader::new(stderr).lines();
-
         let mut stdout_done = false;
         let mut stderr_done = false;
 
         while !stdout_done || !stderr_done {
             tokio::select! {
                 line = stdout_reader.next_line(), if !stdout_done => {
-                    match line {
-                        Ok(Some(line)) => {
-                            writeln!(log_file, "{}", line)?;
-                            if let Some(ref pb) = opts.progress_bar {
-                                let msg = if line.len() > 50 { format!("{}...", &line[..47]) } else { line.clone() };
-                                pb.set_message(msg);
-                            }
-                            if error_buffer.len() == 20 { error_buffer.pop_front(); }
-                            error_buffer.push_back(line);
-                        }
-                        Ok(None) => stdout_done = true,
-                        Err(_) => stdout_done = true,
-                    }
+                    if let Ok(Some(line)) = line {
+                        writeln!(log_file, "{}", line)?;
+                        if let Some(ref pb) = opts.progress_bar { pb.set_message(line.clone()); }
+                        if error_buffer.len() == 20 { error_buffer.pop_front(); }
+                        error_buffer.push_back(line);
+                    } else { stdout_done = true; }
                 }
                 line = stderr_reader.next_line(), if !stderr_done => {
-                    match line {
-                        Ok(Some(line)) => {
-                            writeln!(log_file, "{}", line)?;
-                            if let Some(ref pb) = opts.progress_bar {
-                                let msg = if line.len() > 50 { format!("{}...", &line[..47]) } else { line.clone() };
-                                pb.set_message(msg);
-                            }
-                            if error_buffer.len() == 20 { error_buffer.pop_front(); }
-                            error_buffer.push_back(line);
-                        }
-                        Ok(None) => stderr_done = true,
-                        Err(_) => stderr_done = true,
-                    }
+                    if let Ok(Some(line)) = line {
+                        writeln!(log_file, "{}", line)?;
+                        if let Some(ref pb) = opts.progress_bar { pb.set_message(line.clone()); }
+                        if error_buffer.len() == 20 { error_buffer.pop_front(); }
+                        error_buffer.push_back(line);
+                    } else { stderr_done = true; }
                 }
             }
         }
 
-        let status = child.wait().await.context("Failed to wait for buildah")?;
-
+        let status = child.wait().await?;
         if !status.success() {
-            let error_msg = error_buffer.make_contiguous().join("\n");
             bail!(
-                "BUILD FAILED: {}\n================================================================================\nLast 20 lines of log:\n{}\n================================================================================",
+                "BUILD FAILED: {}\nLog:\n{}",
                 name,
-                error_msg
+                error_buffer.make_contiguous().join("\n")
             );
         }
 
         let image_id = fs::read_to_string(iid_path)?.trim().to_string();
-        let digest_output = Command::new("buildah")
-            .env("CONTAINERS_STORAGE_CONF", &self.paths.storage_conf)
-            .env("TMPDIR", &self.paths.tmp_dir)
-            .arg("images")
-            .arg("--no-trunc")
-            .arg("--format")
-            .arg("{{.Digest}}")
-            .arg(&image_id)
+        let digest_output = self
+            .command("images")
+            .args(["--no-trunc", "--format", "{{.Digest}}", &image_id])
             .output()
             .await?;
 
         let digest_str = String::from_utf8(digest_output.stdout)?;
-
-        // Use an `Option` to strictly track whether a valid digest was found.
-        // Buildah may return multi-line output if multiple tags exist, so we
-        // iterate through the lines to extract the first actual digest.
         let mut final_digest = None;
-
         for line in digest_str.lines() {
             let line = line.trim();
             if !line.is_empty() && line != "<none>" {
@@ -189,48 +195,116 @@ impl ContainerEngine for BuildahEngine {
             }
         }
 
-        // Enforce strict validation: abort if no valid digest could be retrieved.
-        let final_digest = match final_digest {
-            Some(d) => d,
-            None => anyhow::bail!(
-                "CRITICAL: Failed to retrieve a valid OCI digest for image ID {}.\nBuildah output was:\n{}",
-                image_id,
-                digest_str
-            ),
-        };
+        let digest = final_digest.context("Failed to retrieve digest")?;
+        Ok(BuildResult { digest, local_ref })
+    }
 
-        if opts.progress_bar.is_none() {
-            println!("Built {}: {}", name, final_digest);
+    pub async fn push(&self, local_ref: &str, destination: &str) -> Result<String> {
+        let digest_file = NamedTempFile::new_in(&self.paths.tmp_dir)?;
+        let digest_path = digest_file.path().to_str().unwrap();
+
+        let status = self
+            .command("push")
+            .kill_on_drop(true)
+            .args(["--digestfile", digest_path, local_ref, destination])
+            .status()
+            .await?;
+
+        if !status.success() {
+            bail!("Failed to push image");
         }
-        Ok(BuildResult {
-            digest: final_digest,
-            local_ref,
+        Ok(fs::read_to_string(digest_path)?.trim().to_string())
+    }
+
+    /// Analyzes local storage against active references and destroys garbage
+    pub async fn gc(
+        &self,
+        active_hashes: &HashSet<String>,
+        active_refs: &HashSet<String>,
+    ) -> Result<GcReport> {
+        let output = self.command("images").arg("--json").output().await?;
+
+        if !output.status.success() {
+            bail!(
+                "Failed to execute buildah images:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        let stdout_str = stdout_str.trim();
+
+        if stdout_str.is_empty() || stdout_str == "null" {
+            return Ok(GcReport {
+                untagged: HashSet::new(),
+                removed_ids: HashSet::new(),
+            });
+        }
+
+        let buildah_images: Vec<BuildahImage> = serde_json::from_str(stdout_str)?;
+        let mut garbage_ids = HashSet::new();
+        let mut garbage_tags = HashSet::new();
+
+        for img in buildah_images {
+            let id_full = if img.id.starts_with("sha256:") {
+                img.id.clone()
+            } else {
+                format!("sha256:{}", img.id)
+            };
+
+            let is_known = active_hashes.contains(&img.id)
+                || active_hashes.contains(&id_full)
+                || active_hashes.contains(&img.digest);
+
+            if !is_known {
+                garbage_ids.insert(img.id);
+            } else {
+                for name in img.names {
+                    if !name.is_empty() && !name.contains("<none>") && !active_refs.contains(&name)
+                    {
+                        garbage_tags.insert(name);
+                    }
+                }
+            }
+        }
+
+        // Phase 1: Untag
+        if !garbage_tags.is_empty() {
+            let mut args = vec!["rmi"];
+            args.extend(garbage_tags.iter().map(|s| s.as_str()));
+            self.command("").args(&args).status().await?;
+        }
+
+        // Phase 2: Remove IDs
+        if !garbage_ids.is_empty() {
+            let mut args = vec!["rmi", "-f"];
+            args.extend(garbage_ids.iter().map(|s| s.as_str()));
+            self.command("").args(&args).status().await?;
+        }
+
+        Ok(GcReport {
+            untagged: garbage_tags,
+            removed_ids: garbage_ids,
         })
     }
 
-    async fn push(&self, local_ref: &str, destination: &str) -> anyhow::Result<String> {
-        let digest_file = NamedTempFile::new_in(&self.paths.tmp_dir)
-            .context("Failed to create temp file for digest")?;
-        let digest_path = digest_file.path().to_str().unwrap();
-
-        let status = Command::new("buildah")
-            .kill_on_drop(true)
-            .env("CONTAINERS_STORAGE_CONF", &self.paths.storage_conf)
-            .env("TMPDIR", &self.paths.tmp_dir)
-            .arg("push")
-            .arg("--digestfile")
-            .arg(digest_path)
-            .arg(local_ref)
-            .arg(destination)
-            .status()
-            .await
-            .context("Failed to execute buildah push")?;
+    /// Physically obliterates all images in the isolated container storage
+    pub async fn clean(&self) -> Result<()> {
+        let status = self.command("rmi").arg("-a").arg("-f").status().await?;
 
         if !status.success() {
-            anyhow::bail!("Failed to push image to {}", destination);
+            bail!("Clean failed while removing imges.");
         }
+        Ok(())
+    }
 
-        let digest = fs::read_to_string(digest_path)?.trim().to_string();
-        Ok(digest)
+    /// Overwrites the current process with an interactive shell configured for the isolated environment
+    pub fn enter_shell(&self, project_name: &str) -> Result<()> {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        let mut cmd = self.std_command(&shell);
+        cmd.env("DULL_PROJECT_NAME", project_name);
+
+        let err = cmd.exec(); // Never returns if successful
+        bail!("Failed to exec shell: {}", err);
     }
 }
