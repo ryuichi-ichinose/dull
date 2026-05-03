@@ -1,4 +1,4 @@
-use crate::config::{DullConfig, ProjectConfig, write_atomic};
+use crate::config::{DullConfig, ProjectConfig, ProjectPaths, write_atomic};
 use anyhow::Result;
 use std::collections::BTreeMap;
 use std::env;
@@ -19,8 +19,9 @@ fn apply_selinux_label(path: &Path) -> Result<()> {
 
 pub fn run_init() -> Result<()> {
     let root = env::current_dir()?;
-    let config_path = root.join("dull.toml");
-    if config_path.exists() {
+    let paths = ProjectPaths::new(root.clone());
+
+    if paths.config_file.exists() {
         println!("dull.toml already exists.");
         return Ok(());
     }
@@ -38,22 +39,17 @@ pub fn run_init() -> Result<()> {
     };
 
     let toml_content = toml::to_string_pretty(&conf)?;
-    crate::config::write_atomic(&config_path, &toml_content)?;
+    write_atomic(&paths.config_file, &toml_content)?;
 
     println!("Initialized dull.toml");
 
-    // Initialize .dull environment
-    let dull_dir = root.join(".dull");
-    let containers_dir = dull_dir.join("containers");
-    let storage_dir = containers_dir.join("storage");
-    let storage_conf = containers_dir.join("storage.conf");
     let global_cache = "/var/lib/shared-container-cache";
 
-    fs::create_dir_all(&storage_dir)?;
-    apply_selinux_label(&storage_dir)?;
+    fs::create_dir_all(&paths.storage_dir)?;
+    apply_selinux_label(&paths.storage_dir)?;
 
     let mut additional_stores_line = String::new();
-    if std::path::Path::new(global_cache).exists() {
+    if Path::new(global_cache).exists() {
         additional_stores_line = format!("additionalimagestores = [\"{}\"]", global_cache);
     }
 
@@ -69,11 +65,11 @@ pub fn run_init() -> Result<()> {
          [storage.options.overlay]\n\
          use_composefs = \"false\"\n\
          mountopt = \"nodev,metacopy=on\"\n",
-        storage_dir.display(),
+        paths.storage_dir.display(),
         additional_stores_line
     );
 
-    write_atomic(&storage_conf, &conf_content)?;
+    write_atomic(&paths.storage_conf, &conf_content)?;
     println!("Initialized .dull/storage.conf");
 
     // Update .gitignore
