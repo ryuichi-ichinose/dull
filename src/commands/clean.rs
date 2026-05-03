@@ -12,6 +12,9 @@ pub async fn run_clean(engine: &BuildahEngine, mut ctx: ProjectContext) -> Resul
     // Delegate physical destruction to the engine
     engine.clean().await?;
 
+    ctx.lock = DullLock::default();
+    save_lock(&ctx)?;
+
     println!("Clean completed.");
     Ok(())
 }
