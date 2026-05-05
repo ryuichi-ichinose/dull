@@ -38,7 +38,7 @@ struct BuildahImage {
     id: String,
     digest: String,
     #[serde(default)]
-    names: Vec<String>,
+    names: Option<Vec<String>>,
 }
 
 #[derive(Debug)]
@@ -259,7 +259,7 @@ impl BuildahEngine {
             if !is_known {
                 garbage_ids.insert(img.id);
             } else {
-                for name in img.names {
+                for name in img.names.unwrap_or_default() {
                     if !name.is_empty() && !name.contains("<none>") && !active_refs.contains(&name)
                     {
                         garbage_tags.insert(name);
