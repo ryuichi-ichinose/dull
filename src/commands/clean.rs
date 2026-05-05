@@ -1,4 +1,4 @@
-use crate::config::{DullLock, ProjectContext, save_lock};
+use crate::config::{DullState, ProjectContext, save_state};
 use crate::engine::BuildahEngine;
 use anyhow::Result;
 
@@ -12,8 +12,8 @@ pub async fn run_clean(engine: &BuildahEngine, mut ctx: ProjectContext) -> Resul
     // Delegate physical destruction to the engine
     engine.clean().await?;
 
-    ctx.lock = DullLock::default();
-    save_lock(&ctx)?;
+    ctx.state = DullState::default();
+    save_state(&ctx)?;
 
     println!("Clean completed.");
     Ok(())

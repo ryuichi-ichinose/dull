@@ -7,12 +7,16 @@ pub async fn run_gc(engine: &BuildahEngine, ctx: ProjectContext) -> Result<()> {
     let mut active_hashes = HashSet::new();
     let mut active_refs = HashSet::new();
 
-    for profile in ctx.lock.images.values() {
+    for profile in ctx.state.images.values() {
         active_hashes.insert(profile.digest.clone());
         active_refs.insert(profile.local_ref.clone());
     }
 
-    println!("Found {} active images in dull.lock", active_hashes.len());
+    println!(
+        "Found {} active images in {}",
+        active_hashes.len(),
+        ctx.paths.state_file.to_string_lossy()
+    );
 
     let report = engine.gc(&active_hashes, &active_refs).await?;
 

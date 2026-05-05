@@ -46,7 +46,7 @@ pub struct DullConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LockImageProfile {
+pub struct StateImageProfile {
     pub digest: String,
     pub local_ref: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -54,15 +54,15 @@ pub struct LockImageProfile {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
-pub struct DullLock {
-    pub images: BTreeMap<String, LockImageProfile>,
+pub struct DullState {
+    pub images: BTreeMap<String, StateImageProfile>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ProjectPaths {
     pub root: PathBuf,
     pub config_file: PathBuf,
-    pub lock_file: PathBuf,
+    pub state_file: PathBuf,
     pub dull_dir: PathBuf,
     pub containers_dir: PathBuf,
     pub storage_dir: PathBuf,
@@ -77,7 +77,7 @@ impl ProjectPaths {
 
         Self {
             config_file: root.join("dull.toml"),
-            lock_file: root.join("dull.lock"),
+            state_file: root.join(".dull").join("dull_state.json"),
             storage_dir: containers_dir.join("storage"),
             storage_conf: containers_dir.join("storage.conf"),
             tmp_dir: containers_dir.join("tmp"),
@@ -91,7 +91,7 @@ impl ProjectPaths {
 pub struct ProjectContext {
     pub paths: ProjectPaths,
     pub config: DullConfig,
-    pub lock: DullLock,
+    pub state: DullState,
 }
 
 pub fn load_project_context() -> Result<ProjectContext> {
@@ -110,17 +110,17 @@ pub fn load_project_context() -> Result<ProjectContext> {
     let config_content = fs::read_to_string(&paths.config_file)?;
     let config: DullConfig = toml::from_str(&config_content)?;
 
-    let lock = if paths.lock_file.exists() {
-        let content = fs::read_to_string(&paths.lock_file)?;
-        serde_json::from_str(&content).context("Failed to parse dull.lock")?
+    let state = if paths.state_file.exists() {
+        let content = fs::read_to_string(&paths.state_file)?;
+        serde_json::from_str(&content).context("Failed to parse dull.state")?
     } else {
-        DullLock::default()
+        DullState::default()
     };
 
     Ok(ProjectContext {
         paths,
         config,
-        lock,
+        state,
     })
 }
 
@@ -144,7 +144,7 @@ pub fn save_config(ctx: &ProjectContext) -> Result<()> {
     write_atomic(&ctx.paths.config_file, &content)
 }
 
-pub fn save_lock(ctx: &ProjectContext) -> Result<()> {
-    let content = serde_json::to_string_pretty(&ctx.lock)?;
-    write_atomic(&ctx.paths.lock_file, &content)
+pub fn save_state(ctx: &ProjectContext) -> Result<()> {
+    let content = serde_json::to_string_pretty(&ctx.state)?;
+    write_atomic(&ctx.paths.state_file, &content)
 }

@@ -1,5 +1,5 @@
 use crate::cli::PushArgs;
-use crate::config::{ProjectContext, save_lock};
+use crate::config::{ProjectContext, save_state};
 use crate::engine::BuildahEngine;
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -20,7 +20,7 @@ pub async fn run_push(
     let registry_base = &registry_profile.url;
     // Determine target images
     let target_names: Vec<String> = if args.all {
-        ctx.lock.images.keys().cloned().collect()
+        ctx.state.images.keys().cloned().collect()
     } else {
         args.images.clone()
     };
@@ -34,10 +34,10 @@ pub async fn run_push(
     let mut handles = Vec::new();
 
     for name in target_names {
-        let lock_info = match ctx.lock.images.get(&name) {
+        let state_info = match ctx.state.images.get(&name) {
             Some(info) => info.clone(),
             None => {
-                eprintln!("Warning: No lock entry for {}. Build it first.", name);
+                eprintln!("Warning: No state entry for {}. Build it first.", name);
                 continue;
             }
         };
@@ -56,7 +56,7 @@ pub async fn run_push(
 
         handles.push(tokio::spawn(async move {
             println!("-> Pushing {}...", name_clone);
-            match engine.push(&lock_info.local_ref, &destination).await {
+            match engine.push(&state_info.local_ref, &destination).await {
                 Ok(registry_digest) => {
                     println!("DONE: {} pushed. Digest: {}", name_clone, registry_digest);
                     Ok((name_clone, registry_digest))
@@ -72,7 +72,7 @@ pub async fn run_push(
     let mut updated_count = 0;
     for handle in handles {
         if let Ok(Ok((name, digest))) = handle.await
-            && let Some(info) = ctx.lock.images.get_mut(&name)
+            && let Some(info) = ctx.state.images.get_mut(&name)
         {
             info.registry_digests.insert("default".to_string(), digest);
             updated_count += 1;
@@ -80,8 +80,12 @@ pub async fn run_push(
     }
 
     if updated_count > 0 {
-        save_lock(&ctx)?;
-        println!("dull.lock updated with {} registry digests.", updated_count);
+        save_state(&ctx)?;
+        println!(
+            "{} updated with {} registry digests.",
+            ctx.paths.state_file.to_string_lossy(),
+            updated_count
+        );
     } else {
         println!("No images were successfully pushed.");
     }

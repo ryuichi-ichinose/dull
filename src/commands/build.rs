@@ -1,6 +1,6 @@
 use crate::build_graph::compute_plan;
 use crate::cli::BuildArgs;
-use crate::config::{LockImageProfile, ProjectContext, save_lock};
+use crate::config::{ProjectContext, StateImageProfile, save_state};
 use crate::engine::{BuildOptions, BuildResult, BuildahEngine};
 use anyhow::{Result, bail};
 use futures::future::{BoxFuture, FutureExt, Shared};
@@ -127,15 +127,15 @@ pub async fn run_build(
     }
 
     let mut build_errors = Vec::new();
-    let mut new_locks = BTreeMap::new();
+    let mut new_states = BTreeMap::new();
     let task_names: Vec<String> = task_futures.keys().cloned().collect();
 
     for name in task_names {
         match task_futures[&name].clone().await {
             Ok(res) => {
-                new_locks.insert(
+                new_states.insert(
                     name,
-                    LockImageProfile {
+                    StateImageProfile {
                         digest: res.digest,
                         local_ref: res.local_ref,
                         registry_digests: BTreeMap::new(),
@@ -150,12 +150,12 @@ pub async fn run_build(
         bail!("Build completed with errors");
     }
 
-    ctx.lock.images.extend(new_locks);
-    ctx.lock
+    ctx.state.images.extend(new_states);
+    ctx.state
         .images
         .retain(|k, _| ctx.config.images.contains_key(k));
-    save_lock(&ctx)?;
+    save_state(&ctx)?;
 
-    println!("\ndull.lock updated.");
+    println!("{} updated.", ctx.paths.state_file.to_string_lossy());
     Ok(())
 }
