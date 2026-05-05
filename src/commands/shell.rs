@@ -9,5 +9,5 @@ pub fn run_shell(engine: &BuildahEngine, ctx: ProjectContext) -> Result<()> {
     );
 
     // Delegate process replacement to the engine. Will not return.
-    engine.enter_shell(&ctx.config.project.name)
+    engine.shell(&ctx.config.project.name)
 }

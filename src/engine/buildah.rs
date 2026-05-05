@@ -299,7 +299,7 @@ impl BuildahEngine {
     }
 
     /// Overwrites the current process with an interactive shell configured for the isolated environment
-    pub fn enter_shell(&self, project_name: &str) -> Result<()> {
+    pub fn shell(&self, project_name: &str) -> Result<()> {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
         let mut cmd = self.std_command(&shell);
         cmd.env("DULL_PROJECT_NAME", project_name);
