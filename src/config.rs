@@ -87,7 +87,7 @@ impl ProjectPaths {
         }
     }
 }
-
+#[derive(Clone)]
 pub struct ProjectContext {
     pub paths: ProjectPaths,
     pub config: DullConfig,

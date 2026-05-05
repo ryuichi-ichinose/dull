@@ -1,4 +1,4 @@
-use crate::config::ProjectPaths;
+use crate::config::ProjectContext;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
@@ -48,11 +48,11 @@ pub struct GcReport {
 }
 
 pub struct BuildahEngine {
-    pub paths: ProjectPaths,
+    pub ctx: ProjectContext,
 }
 
 impl BuildahEngine {
-    pub fn new(paths: ProjectPaths) -> Result<Self> {
+    pub fn new(ctx: ProjectContext) -> Result<Self> {
         if std::process::Command::new("buildah")
             .arg("--version")
             .output()
@@ -60,18 +60,18 @@ impl BuildahEngine {
         {
             bail!("'buildah' command not found. Install it first.");
         }
-        if !paths.storage_conf.exists() {
+        if !ctx.paths.storage_conf.exists() {
             bail!("Storage not configured. Run 'dull init' first.");
         }
-        fs::create_dir_all(&paths.tmp_dir)?;
-        Ok(Self { paths })
+        fs::create_dir_all(&ctx.paths.tmp_dir)?;
+        Ok(Self { ctx })
     }
 
     /// Core helper to ensure isolation: Injects necessary environment variables for Tokio commands
     pub fn command(&self, subcmd: &str) -> TokioCommand {
         let mut cmd = TokioCommand::new("buildah");
-        cmd.env("CONTAINERS_STORAGE_CONF", &self.paths.storage_conf)
-            .env("TMPDIR", &self.paths.tmp_dir);
+        cmd.env("CONTAINERS_STORAGE_CONF", &self.ctx.paths.storage_conf)
+            .env("TMPDIR", &self.ctx.paths.tmp_dir);
         if !subcmd.is_empty() {
             cmd.arg(subcmd);
         }
@@ -81,8 +81,8 @@ impl BuildahEngine {
     /// Core helper for synchronous std::process::Command (used for exec/shell)
     pub fn std_command(&self, program: &str) -> std::process::Command {
         let mut cmd = std::process::Command::new(program);
-        cmd.env("CONTAINERS_STORAGE_CONF", &self.paths.storage_conf)
-            .env("TMPDIR", &self.paths.tmp_dir);
+        cmd.env("CONTAINERS_STORAGE_CONF", &self.ctx.paths.storage_conf)
+            .env("TMPDIR", &self.ctx.paths.tmp_dir);
         cmd
     }
 
@@ -113,7 +113,7 @@ impl BuildahEngine {
 
     pub async fn build(&self, name: &str, opts: BuildOptions<'_>) -> Result<BuildResult> {
         let local_ref = format!("localhost/{}:{}", name, opts.target_tag);
-        let iid_file = NamedTempFile::new_in(&self.paths.tmp_dir)?;
+        let iid_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
         let iid_path = iid_file.path().to_str().unwrap();
 
         let mut cmd = self.command("bud");
@@ -135,7 +135,7 @@ impl BuildahEngine {
             .stderr(Stdio::piped())
             .spawn()?;
 
-        let log_dir = self.paths.dull_dir.join("logs");
+        let log_dir = self.ctx.paths.dull_dir.join("logs");
         fs::create_dir_all(&log_dir)?;
         let mut log_file = File::create(log_dir.join(format!("{}.log", name)))?;
         let mut error_buffer = VecDeque::with_capacity(20);
@@ -200,7 +200,7 @@ impl BuildahEngine {
     }
 
     pub async fn push(&self, local_ref: &str, destination: &str) -> Result<String> {
-        let digest_file = NamedTempFile::new_in(&self.paths.tmp_dir)?;
+        let digest_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
         let digest_path = digest_file.path().to_str().unwrap();
 
         let status = self
