@@ -1,3 +1,4 @@
+use crate::cli::ScanArgs;
 use crate::config::{ImageProfile, ProjectContext, save_config};
 use anyhow::{Result, bail};
 use ignore::WalkBuilder;
@@ -35,7 +36,7 @@ fn is_valid_image_name(name: &str) -> bool {
     !last_was_sep // cannot end with separator
 }
 
-pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
+pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
     let mut disk_images = BTreeMap::new();
     println!("Scanning for Containerfiles in {:?}", ctx.paths.root);
 
@@ -77,7 +78,9 @@ pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
                 );
             }
 
-            let context_str = if context_path.is_empty() {
+            let context_str = if let Some(ref c) = args.context {
+                c.clone()
+            } else if context_path.is_empty() {
                 ".".to_string()
             } else {
                 context_path
@@ -105,10 +108,16 @@ pub fn run_scan(mut ctx: ProjectContext) -> Result<()> {
     });
 
     for (name, profile) in disk_images {
-        ctx.config.images.entry(name.clone()).or_insert_with(|| {
-            println!("+ Found new image: {}", name);
-            profile
-        });
+        ctx.config
+            .images
+            .entry(name.clone())
+            .and_modify(|existing| {
+                existing.context = profile.context.clone();
+            })
+            .or_insert_with(|| {
+                println!("+ Found new image: {}", name);
+                profile
+            });
     }
 
     save_config(&ctx)?;

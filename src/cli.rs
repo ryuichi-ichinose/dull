@@ -10,7 +10,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     Init,
-    Scan,
+    Scan(ScanArgs),
     Login(LoginArgs),
     Registry(RegistryArgs),
     Build(BuildArgs),
@@ -18,6 +18,12 @@ pub enum Commands {
     Shell,
     Clean,
     Gc,
+}
+
+#[derive(Args)]
+pub struct ScanArgs {
+    #[arg(short, long)]
+    pub context: Option<String>,
 }
 
 #[derive(Args)]
