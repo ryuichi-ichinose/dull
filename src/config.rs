@@ -5,6 +5,8 @@ use std::env;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process;
+use tempfile::Builder;
 
 fn default_tag() -> String {
     "latest".to_string()
@@ -125,16 +127,26 @@ pub fn load_project_context() -> Result<ProjectContext> {
 }
 
 pub fn write_atomic(path: &Path, content: &str) -> Result<()> {
-    let tmp_path = path.with_extension("tmp");
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
 
-    let mut file = File::create(&tmp_path)
-        .with_context(|| format!("Failed to create temp file {:?}", tmp_path))?;
-    file.write_all(content.as_bytes())?;
+    let mut tmp_file = Builder::new()
+        .prefix(&format!(".tmp_{}_", process::id()))
+        .tempfile_in(parent)
+        .context("Failed to create temp file")?;
 
-    file.sync_all()?;
+    tmp_file.write_all(content.as_bytes())?;
+    tmp_file.as_file().sync_all()?;
 
-    fs::rename(&tmp_path, path)
-        .with_context(|| format!("Failed to atomic rename {:?} to {:?}", tmp_path, path))?;
+    tmp_file
+        .persist(path)
+        .map_err(|e| e.error)
+        .with_context(|| format!("Failed to atomic rename to {:?}", path))?;
+
+    let parent_dir = File::open(parent)
+        .with_context(|| format!("Failed to open parent directory {:?}", parent))?;
+    parent_dir
+        .sync_all()
+        .context("Failed to sync parent directory")?;
 
     Ok(())
 }
