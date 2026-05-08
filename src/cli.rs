@@ -22,6 +22,8 @@ pub enum Commands {
 
 #[derive(Args)]
 pub struct ScanArgs {
+    #[arg(num_args = 0..)]
+    pub directories: Vec<String>,
     #[arg(short, long)]
     pub context: Option<String>,
 }

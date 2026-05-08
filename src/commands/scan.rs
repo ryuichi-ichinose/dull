@@ -38,12 +38,21 @@ fn is_valid_image_name(name: &str) -> bool {
 
 pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
     let mut disk_images = BTreeMap::new();
-    println!("Scanning for Containerfiles in {:?}", ctx.paths.root);
 
-    for entry in WalkBuilder::new(&ctx.paths.root)
-        .build()
-        .filter_map(|e| e.ok())
-    {
+    let target_dirs = if args.directories.is_empty() {
+        vec!["".to_string()]
+    } else {
+        args.directories.clone()
+    };
+
+    println!("Scanning for Containerfiles...");
+
+    let mut builder = WalkBuilder::new(ctx.paths.root.join(&target_dirs[0]));
+    for dir in target_dirs.iter().skip(1) {
+        builder.add(ctx.paths.root.join(dir));
+    }
+
+    for entry in builder.build().filter_map(|e| e.ok()) {
         if !entry.file_type().is_some_and(|ft| ft.is_file()) {
             continue;
         }
@@ -99,10 +108,11 @@ pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
         }
     }
 
-    ctx.config.images.retain(|name, _| {
-        let exists = disk_images.contains_key(name);
+    ctx.config.images.retain(|name, profile| {
+        let full_path = ctx.paths.root.join(&profile.path);
+        let exists = full_path.is_file();
         if !exists {
-            println!("- Removed missing image: {}", name);
+            println!("- Removed missing image (file not found): {}", name);
         }
         exists
     });
