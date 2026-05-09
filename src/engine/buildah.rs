@@ -2,13 +2,13 @@ use crate::config::ProjectContext;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
-use std::fs::{self, File};
-use std::io::Write;
+use std::fs::{self};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Stdio;
 use tempfile::NamedTempFile;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::fs::{self as tokio_fs, File as TokioFile};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::Command as TokioCommand;
 
 #[derive(Debug)]
@@ -136,8 +136,10 @@ impl BuildahEngine {
             .spawn()?;
 
         let log_dir = self.ctx.paths.dull_dir.join("logs");
-        fs::create_dir_all(&log_dir)?;
-        let mut log_file = File::create(log_dir.join(format!("{}.log", name)))?;
+        tokio_fs::create_dir_all(&log_dir).await?;
+
+        let log_file = TokioFile::create(log_dir.join(format!("{}.log", name))).await?;
+        let mut log_writer = BufWriter::new(log_file);
         let mut error_buffer = VecDeque::with_capacity(20);
 
         let stdout = child.stdout.take().unwrap();
@@ -152,7 +154,10 @@ impl BuildahEngine {
             tokio::select! {
                 line = stdout_reader.next_line(), if !stdout_done => {
                     if let Ok(Some(line)) = line {
-                        writeln!(log_file, "{}", line)?;
+
+                        log_writer.write_all(line.as_bytes()).await?;
+                        log_writer.write_all(b"\n").await?;
+
                         if let Some(ref pb) = opts.progress_bar { pb.set_message(line.clone()); }
                         if error_buffer.len() == 20 { error_buffer.pop_front(); }
                         error_buffer.push_back(line);
@@ -160,7 +165,9 @@ impl BuildahEngine {
                 }
                 line = stderr_reader.next_line(), if !stderr_done => {
                     if let Ok(Some(line)) = line {
-                        writeln!(log_file, "{}", line)?;
+                        log_writer.write_all(line.as_bytes()).await?;
+                        log_writer.write_all(b"\n").await?;
+
                         if let Some(ref pb) = opts.progress_bar { pb.set_message(line.clone()); }
                         if error_buffer.len() == 20 { error_buffer.pop_front(); }
                         error_buffer.push_back(line);
@@ -168,6 +175,8 @@ impl BuildahEngine {
                 }
             }
         }
+
+        log_writer.flush().await?;
 
         let status = child.wait().await?;
         if !status.success() {
