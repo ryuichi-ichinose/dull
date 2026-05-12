@@ -7,9 +7,11 @@ pub async fn run_gc(engine: &BuildahEngine, ctx: ProjectContext) -> Result<()> {
     let mut active_hashes = HashSet::new();
     let mut active_refs = HashSet::new();
 
-    for profile in ctx.state.images.values() {
-        active_hashes.insert(profile.digest.clone());
-        active_refs.insert(profile.local_ref.clone());
+    for reference in ctx.state.images.values() {
+        if let Some(ref d) = reference.digest {
+            active_hashes.insert(d.clone());
+        }
+        active_refs.insert(reference.to_tag_string());
     }
 
     println!(

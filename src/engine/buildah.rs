@@ -1,4 +1,5 @@
 use crate::config::ProjectContext;
+use crate::image_reference::ImageReference;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::collections::{HashSet, VecDeque};
@@ -15,7 +16,6 @@ use tokio::process::Command as TokioCommand;
 pub struct BuildOptions<'a> {
     pub dockerfile_path: &'a Path,
     pub context_dir: &'a Path,
-    pub target_tag: &'a str,
     pub build_args: &'a std::collections::BTreeMap<String, String>,
     pub progress_bar: Option<indicatif::ProgressBar>,
 }
@@ -111,8 +111,13 @@ impl BuildahEngine {
         Ok(())
     }
 
-    pub async fn build(&self, name: &str, opts: BuildOptions<'_>) -> Result<BuildResult> {
-        let local_ref = format!("localhost/{}:{}", name, opts.target_tag);
+    pub async fn build(
+        &self,
+        reference: &ImageReference,
+        opts: BuildOptions<'_>,
+    ) -> Result<ImageReference> {
+        let local_ref = reference.to_tag_string();
+
         let iid_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
         let iid_path = iid_file.path().to_str().unwrap();
 
@@ -120,7 +125,6 @@ impl BuildahEngine {
         cmd.kill_on_drop(true)
             .args(["--format=oci", "--layers=true", "--iidfile", iid_path]);
 
-        // Inject build arguments resolved from config
         for (k, v) in opts.build_args {
             cmd.arg("--build-arg").arg(format!("{}={}", k, v));
         }
@@ -138,7 +142,7 @@ impl BuildahEngine {
         let log_dir = self.ctx.paths.dull_dir.join("logs");
         tokio_fs::create_dir_all(&log_dir).await?;
 
-        let log_file = TokioFile::create(log_dir.join(format!("{}.log", name))).await?;
+        let log_file = TokioFile::create(log_dir.join(format!("{}.log", reference.name))).await?;
         let mut log_writer = BufWriter::new(log_file);
         let mut error_buffer = VecDeque::with_capacity(20);
 
@@ -182,45 +186,66 @@ impl BuildahEngine {
         if !status.success() {
             bail!(
                 "BUILD FAILED: {}\nLog:\n{}",
-                name,
+                reference.name,
                 error_buffer.make_contiguous().join("\n")
             );
         }
 
         let image_id = fs::read_to_string(iid_path)?.trim().to_string();
+
         let digest_output = self
             .command("images")
-            .args(["--no-trunc", "--format", "{{.Digest}}", &image_id])
+            .args(["--json", &image_id])
             .output()
             .await?;
 
-        let digest_str = String::from_utf8(digest_output.stdout)?;
-        let mut final_digest = None;
-        for line in digest_str.lines() {
-            let line = line.trim();
-            if !line.is_empty() && line != "<none>" {
-                final_digest = Some(line.to_string());
-                break;
-            }
+        if !digest_output.status.success() {
+            bail!(
+                "Failed to get image info:\n{}",
+                String::from_utf8_lossy(&digest_output.stderr)
+            );
         }
 
-        let digest = final_digest.context("Failed to retrieve digest")?;
-        Ok(BuildResult { digest, local_ref })
+        let stdout_str = String::from_utf8(digest_output.stdout)?;
+
+        let images: Vec<BuildahImage> =
+            serde_json::from_str(&stdout_str).context("Failed to parse buildah images JSON")?;
+
+        let digest = images
+            .into_iter()
+            .next()
+            .map(|img| img.digest)
+            .filter(|d| !d.is_empty() && d != "<none>")
+            .context("Failed to retrieve valid digest from JSON")?;
+
+        let mut completed_reference = reference.clone();
+        completed_reference.digest = Some(digest);
+
+        Ok(completed_reference)
     }
 
-    pub async fn push(&self, local_ref: &str, destination: &str) -> Result<String> {
+    pub async fn push(
+        &self,
+        source: &ImageReference,
+        destination: &ImageReference,
+    ) -> Result<String> {
         let digest_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
         let digest_path = digest_file.path().to_str().unwrap();
+        let src_str = source
+            .digest
+            .clone()
+            .unwrap_or_else(|| source.to_tag_string());
+        let dest_str = format!("docker://{}", destination.to_tag_string());
 
         let status = self
             .command("push")
             .kill_on_drop(true)
-            .args(["--digestfile", digest_path, local_ref, destination])
+            .args(["--digestfile", digest_path, &src_str, &dest_str])
             .status()
             .await?;
 
         if !status.success() {
-            bail!("Failed to push image");
+            bail!("Failed to push image to {}", dest_str);
         }
         Ok(fs::read_to_string(digest_path)?.trim().to_string())
     }

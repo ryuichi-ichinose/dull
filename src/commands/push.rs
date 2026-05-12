@@ -1,12 +1,13 @@
 use crate::cli::PushArgs;
-use crate::config::{ProjectContext, save_state};
+use crate::config::ProjectContext;
 use crate::engine::BuildahEngine;
+use crate::image_reference::ImageReference;
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
 pub async fn run_push(
     engine: Arc<BuildahEngine>,
-    mut ctx: ProjectContext,
+    ctx: ProjectContext,
     args: PushArgs,
 ) -> Result<()> {
     let target_reg_name = args.registry.as_deref().unwrap_or("default");
@@ -18,7 +19,7 @@ pub async fn run_push(
         .with_context(|| format!("Registry '{}' not configured", target_reg_name))?;
 
     let registry_base = &registry_profile.url;
-    // Determine target images
+
     let target_names: Vec<String> = if args.all {
         ctx.state.images.keys().cloned().collect()
     } else {
@@ -32,9 +33,10 @@ pub async fn run_push(
     );
 
     let mut handles = Vec::new();
+    let project_namespace = ctx.config.project.name.clone();
 
     for name in target_names {
-        let state_info = match ctx.state.images.get(&name) {
+        let local_reference = match ctx.state.images.get(&name) {
             Some(info) => info.clone(),
             None => {
                 eprintln!("Warning: No state entry for {}. Build it first.", name);
@@ -50,16 +52,27 @@ pub async fn run_push(
             .unwrap_or("latest")
             .to_string();
 
-        let destination = format!("docker://{}/{}:{}", registry_base, name, local_tag);
+        let dest_reference = ImageReference {
+            registry: Some(registry_base.clone()),
+            namespace: Some(project_namespace.clone()),
+            name: name.clone(),
+            tag: Some(local_tag),
+            digest: None,
+        };
+
         let engine = Arc::clone(&engine);
         let name_clone = name.clone();
 
         handles.push(tokio::spawn(async move {
             println!("-> Pushing {}...", name_clone);
-            match engine.push(&state_info.local_ref, &destination).await {
-                Ok(registry_digest) => {
-                    println!("DONE: {} pushed. Digest: {}", name_clone, registry_digest);
-                    Ok((name_clone, registry_digest))
+
+            match engine.push(&local_reference, &dest_reference).await {
+                Ok(remote_digest) => {
+                    println!(
+                        "DONE: {} pushed. Remote Digest: {}",
+                        name_clone, remote_digest
+                    );
+                    Ok(name_clone)
                 }
                 Err(e) => {
                     eprintln!("FAIL: Failed to push {}: {}", name_clone, e);
@@ -69,26 +82,13 @@ pub async fn run_push(
         }));
     }
 
-    let mut updated_count = 0;
+    let mut pushed_count = 0;
     for handle in handles {
-        if let Ok(Ok((name, digest))) = handle.await
-            && let Some(info) = ctx.state.images.get_mut(&name)
-        {
-            info.registry_digests.insert("default".to_string(), digest);
-            updated_count += 1;
+        if let Ok(Ok(_)) = handle.await {
+            pushed_count += 1;
         }
     }
 
-    if updated_count > 0 {
-        save_state(&ctx)?;
-        println!(
-            "{} updated with {} registry digests.",
-            ctx.paths.state_file.to_string_lossy(),
-            updated_count
-        );
-    } else {
-        println!("No images were successfully pushed.");
-    }
-
+    println!("{} images were successfully pushed.", pushed_count);
     Ok(())
 }

@@ -1,3 +1,4 @@
+use crate::image_reference::ImageReference;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -47,17 +48,9 @@ pub struct DullConfig {
     pub images: BTreeMap<String, ImageProfile>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct StateImageProfile {
-    pub digest: String,
-    pub local_ref: String,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub registry_digests: BTreeMap<String, String>,
-}
-
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct DullState {
-    pub images: BTreeMap<String, StateImageProfile>,
+    pub images: BTreeMap<String, ImageReference>,
 }
 
 #[derive(Debug, Clone)]

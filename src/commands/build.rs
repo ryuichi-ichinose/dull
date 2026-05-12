@@ -1,7 +1,8 @@
 use crate::build_graph::compute_plan;
 use crate::cli::BuildArgs;
-use crate::config::{ProjectContext, StateImageProfile, save_state};
-use crate::engine::{BuildOptions, BuildResult, BuildahEngine};
+use crate::config::{ProjectContext, save_state};
+use crate::engine::{BuildOptions, BuildahEngine};
+use crate::image_reference::ImageReference;
 use anyhow::{Result, bail};
 use futures::future::{BoxFuture, FutureExt, Shared};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -41,9 +42,13 @@ pub async fn run_build(
     let multi = Arc::new(MultiProgress::new());
     let root = Arc::new(ctx.paths.root.clone());
     let build_tag = Arc::new(args.tag.clone());
+    let project_name = Arc::new(ctx.config.project.name.clone());
 
-    let mut task_futures: HashMap<String, Shared<BoxFuture<'static, Result<BuildResult, String>>>> =
-        HashMap::new();
+    // Futures now resolve directly to the completed ImageReference
+    let mut task_futures: HashMap<
+        String,
+        Shared<BoxFuture<'static, Result<ImageReference, String>>>,
+    > = HashMap::new();
 
     for task in plan.tasks {
         let name = task.name.clone();
@@ -53,6 +58,7 @@ pub async fn run_build(
         let multi = Arc::clone(&multi);
         let build_tag = Arc::clone(&build_tag);
         let semaphore = Arc::clone(&semaphore);
+        let project_name = Arc::clone(&project_name);
 
         let dep_futures: Vec<_> = task
             .dependencies
@@ -61,7 +67,7 @@ pub async fn run_build(
             .collect();
 
         let task_name = name.clone();
-        let task_handle: JoinHandle<Result<BuildResult, String>> = tokio::spawn(async move {
+        let task_handle: JoinHandle<Result<ImageReference, String>> = tokio::spawn(async move {
             for dep_fut in dep_futures {
                 if let Err(e) = dep_fut.await {
                     return Err(format!("Dependency failed: {}", e));
@@ -87,27 +93,37 @@ pub async fn run_build(
                 .as_ref()
                 .cloned()
                 .unwrap_or_else(|| profile.local_tag.clone());
+
             let dockerfile_path = root.join(&profile.path);
             let context_dir = root.join(&profile.context);
+
+            // Construct strictly typed OCI reference at the system boundary
+            let reference = ImageReference {
+                registry: Some("localhost".to_string()),
+                namespace: Some((*project_name).clone()),
+                name: task_name.clone(),
+                tag: Some(tag_owned),
+                digest: None,
+            };
+
             let pb_inner = pb.clone();
 
             let res = engine
                 .build(
-                    &task_name,
+                    &reference,
                     BuildOptions {
                         dockerfile_path: &dockerfile_path,
                         context_dir: &context_dir,
-                        target_tag: &tag_owned,
-                        build_args: &profile.args, // Injects parsed environment variables!
+                        build_args: &profile.args,
                         progress_bar: Some(pb_inner),
                     },
                 )
                 .await;
 
             match res {
-                Ok(res) => {
+                Ok(completed_ref) => {
                     pb.finish_with_message(format!("{} built", task_name));
-                    Ok(res)
+                    Ok(completed_ref)
                 }
                 Err(e) => {
                     let _ = multi.println(format!("\nError building {}:\n{}", task_name, e));
@@ -132,15 +148,8 @@ pub async fn run_build(
 
     for name in task_names {
         match task_futures[&name].clone().await {
-            Ok(res) => {
-                new_states.insert(
-                    name,
-                    StateImageProfile {
-                        digest: res.digest,
-                        local_ref: res.local_ref,
-                        registry_digests: BTreeMap::new(),
-                    },
-                );
+            Ok(completed_ref) => {
+                new_states.insert(name, completed_ref);
             }
             Err(e) => build_errors.push(e),
         }

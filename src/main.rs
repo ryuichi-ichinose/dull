@@ -3,6 +3,7 @@ mod cli;
 mod commands;
 mod config;
 mod engine;
+mod image_reference;
 
 use crate::cli::{Cli, Commands};
 use crate::engine::BuildahEngine;
