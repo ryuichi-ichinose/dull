@@ -20,12 +20,6 @@ pub struct BuildOptions<'a> {
     pub progress_bar: Option<indicatif::ProgressBar>,
 }
 
-#[derive(Debug, Clone)]
-pub struct BuildResult {
-    pub digest: String,
-    pub local_ref: String,
-}
-
 #[derive(Debug)]
 pub struct RegistryAuth<'a> {
     pub username: Option<&'a str>,
