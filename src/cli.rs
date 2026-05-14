@@ -10,6 +10,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     Init,
+    Venv,
     Scan(ScanArgs),
     Login(LoginArgs),
     Registry(RegistryArgs),

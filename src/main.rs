@@ -15,25 +15,39 @@ use std::sync::Arc;
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Specialized handling for init command (root-less)
+    // Context-less boundary
+    // `init` creates the initial dull.toml, so it runs completely independent of context.
     if let Commands::Init = cli.command {
         return commands::init::run_init();
     }
 
-    // Single point of project context loading
     let ctx = config::load_project_context()?;
-    let engine = Arc::new(BuildahEngine::new(ctx.clone())?);
 
     // Dispatch to subcommands
     match cli.command {
         Commands::Init => unreachable!(),
+        Commands::Venv => commands::venv::run_venv(),
+
+        // Context-only boundary
         Commands::Scan(args) => commands::scan::run_scan(ctx, args),
-        Commands::Login(args) => commands::registry::run_login(engine.as_ref(), ctx, args).await,
         Commands::Registry(args) => commands::registry::run_registry(ctx, args.action),
-        Commands::Build(args) => commands::build::run_build(engine, ctx, args).await,
-        Commands::Push(args) => commands::push::run_push(engine, ctx, args).await,
-        Commands::Shell => commands::shell::run_shell(engine.as_ref(), ctx),
-        Commands::Clean => commands::clean::run_clean(engine.as_ref(), ctx).await,
-        Commands::Gc => commands::gc::run_gc(engine.as_ref(), ctx).await,
+
+        // Engine-required boundary
+        // All other commands require the physical .dull/ environment to be fully initialized.
+        cmd => {
+            let engine = Arc::new(BuildahEngine::new(ctx.clone())?);
+
+            match cmd {
+                Commands::Login(args) => {
+                    commands::registry::run_login(engine.as_ref(), ctx, args).await
+                }
+                Commands::Build(args) => commands::build::run_build(engine, ctx, args).await,
+                Commands::Push(args) => commands::push::run_push(engine, ctx, args).await,
+                Commands::Shell => commands::shell::run_shell(engine.as_ref(), ctx),
+                Commands::Clean => commands::clean::run_clean(engine.as_ref(), ctx).await,
+                Commands::Gc => commands::gc::run_gc(engine.as_ref(), ctx).await,
+                _ => unreachable!(),
+            }
+        }
     }
 }

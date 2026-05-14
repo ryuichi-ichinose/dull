@@ -6,3 +6,4 @@ pub mod push;
 pub mod registry;
 pub mod scan;
 pub mod shell;
+pub mod venv;
