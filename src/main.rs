@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
 
             match cmd {
                 Commands::Login(args) => {
-                    commands::registry::run_login(engine.as_ref(), ctx, args).await
+                    commands::login::run_login(engine.as_ref(), ctx, args).await
                 }
                 Commands::Build(args) => commands::build::run_build(engine, ctx, args).await,
                 Commands::Push(args) => commands::push::run_push(engine, ctx, args).await,

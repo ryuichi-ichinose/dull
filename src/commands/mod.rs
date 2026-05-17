@@ -2,6 +2,7 @@ pub mod build;
 pub mod clean;
 pub mod gc;
 pub mod init;
+pub mod login;
 pub mod push;
 pub mod registry;
 pub mod scan;
