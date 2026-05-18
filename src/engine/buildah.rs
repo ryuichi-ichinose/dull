@@ -55,7 +55,7 @@ impl BuildahEngine {
             bail!("'buildah' command not found. Install it first.");
         }
         if !ctx.paths.storage_conf.exists() {
-            bail!("Storage not configured. Run 'dull init' first.");
+            bail!("Storage not configured. Run 'dull venv' first.");
         }
         fs::create_dir_all(&ctx.paths.tmp_dir)?;
         Ok(Self { ctx })
