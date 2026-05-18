@@ -4,12 +4,14 @@ use crate::config::{ProjectContext, save_state};
 use crate::engine::{BuildOptions, BuildahEngine};
 use crate::image_reference::ImageReference;
 use anyhow::{Result, bail};
-use futures::future::{BoxFuture, FutureExt, Shared};
+use futures::future::{FutureExt, Shared};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Semaphore;
-use tokio::task::JoinHandle;
+
+type SharedTaskFuture = Shared<futures::future::BoxFuture<'static, Result<ImageReference, String>>>;
 
 pub async fn run_build(
     engine: Arc<BuildahEngine>,
@@ -18,10 +20,9 @@ pub async fn run_build(
 ) -> Result<()> {
     let targets: BTreeSet<String> = if args.all {
         ctx.config.images.keys().cloned().collect()
+    } else if args.images.is_empty() {
+        bail!("Specify image names or use --all");
     } else {
-        if args.images.is_empty() {
-            bail!("Specify image names or use --all");
-        }
         args.images.iter().cloned().collect()
     };
 
@@ -31,53 +32,49 @@ pub async fn run_build(
         return Ok(());
     }
 
-    let concurrency_limit = args.jobs.unwrap_or_else(|| {
-        std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4)
-    });
+    let concurrency = args
+        .jobs
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, |n| n.get()));
 
-    println!("Starting build with max concurrency: {}", concurrency_limit);
-    let semaphore = Arc::new(Semaphore::new(concurrency_limit));
+    println!("Starting build with max concurrency: {}", concurrency);
+
+    let semaphore = Arc::new(Semaphore::new(concurrency));
     let multi = Arc::new(MultiProgress::new());
-    let root = Arc::new(ctx.paths.root.clone());
-    let build_tag = Arc::new(args.tag.clone());
-    let project_name = Arc::new(ctx.config.project.name.clone());
+    let mut task_futures: HashMap<String, SharedTaskFuture> = HashMap::new();
 
-    // Futures now resolve directly to the completed ImageReference
-    let mut task_futures: HashMap<
-        String,
-        Shared<BoxFuture<'static, Result<ImageReference, String>>>,
-    > = HashMap::new();
+    let base_project_name = ctx.config.project.name.clone();
+    let base_root = ctx.paths.root.clone();
 
     for task in plan.tasks {
-        let name = task.name.clone();
+        let name = task.name;
         let profile = task.profile;
+        let build_tag = args.tag.clone().unwrap_or(profile.local_tag);
+
         let engine = Arc::clone(&engine);
-        let root = Arc::clone(&root);
-        let multi = Arc::clone(&multi);
-        let build_tag = Arc::clone(&build_tag);
         let semaphore = Arc::clone(&semaphore);
-        let project_name = Arc::clone(&project_name);
+        let multi = Arc::clone(&multi);
+        let project_name = base_project_name.clone();
+        let root = base_root.clone();
 
         let dep_futures: Vec<_> = task
             .dependencies
             .iter()
-            .map(|d| task_futures.get(d).unwrap().clone())
+            .map(|d| {
+                task_futures
+                    .get(d)
+                    .expect("Dependency missing in graph")
+                    .clone()
+            })
             .collect();
 
-        let task_name = name.clone();
-        let task_handle: JoinHandle<Result<ImageReference, String>> = tokio::spawn(async move {
-            for dep_fut in dep_futures {
-                if let Err(e) = dep_fut.await {
-                    return Err(format!("Dependency failed: {}", e));
-                }
+        let name_key = name.clone();
+
+        let task_future = tokio::spawn(async move {
+            for dep in dep_futures {
+                dep.await.map_err(|e| format!("Dependency failed: {}", e))?;
             }
 
-            let _permit = semaphore
-                .acquire()
-                .await
-                .map_err(|_| "Semaphore closed".to_string())?;
+            let _permit = semaphore.acquire().await.map_err(|_| "Semaphore closed")?;
 
             let pb = multi.add(ProgressBar::new_spinner());
             pb.set_style(
@@ -85,86 +82,70 @@ pub async fn run_build(
                     .template("{spinner:.green} [{elapsed_precise}] {msg}")
                     .unwrap(),
             );
-            pb.set_message(format!("Building {}...", task_name));
-            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb.set_message(format!("Building {}...", name));
+            pb.enable_steady_tick(Duration::from_millis(100));
 
-            let tag_owned = build_tag
-                .as_ref()
-                .as_ref()
-                .cloned()
-                .unwrap_or_else(|| profile.local_tag.clone());
-
-            let dockerfile_path = root.join(&profile.path);
-            let context_dir = root.join(&profile.context);
-
-            // Construct strictly typed OCI reference at the system boundary
             let reference = ImageReference {
-                registry: Some("localhost".to_string()),
-                namespace: Some((*project_name).clone()),
-                name: task_name.clone(),
-                tag: Some(tag_owned),
+                registry: Some("localhost".into()),
+                namespace: Some(project_name),
+                name: name,
+                tag: Some(build_tag),
                 digest: None,
             };
 
-            let pb_inner = pb.clone();
+            let opts = BuildOptions {
+                dockerfile_path: &root.join(&profile.path),
+                context_dir: &root.join(&profile.context),
+                build_args: &profile.args,
+                progress_bar: Some(pb.clone()),
+            };
 
-            let res = engine
-                .build(
-                    &reference,
-                    BuildOptions {
-                        dockerfile_path: &dockerfile_path,
-                        context_dir: &context_dir,
-                        build_args: &profile.args,
-                        progress_bar: Some(pb_inner),
-                    },
-                )
-                .await;
-
-            match res {
+            match engine.build(&reference, opts).await {
                 Ok(completed_ref) => {
-                    pb.finish_with_message(format!("{} built", task_name));
+                    pb.finish_with_message(format!("{} built", reference.name));
                     Ok(completed_ref)
                 }
                 Err(e) => {
-                    let _ = multi.println(format!("\nError building {}:\n{}", task_name, e));
-                    pb.abandon_with_message(format!("{} failed", task_name));
+                    let _ = multi.println(format!("Error building {}:\n{}", reference.name, e));
+                    pb.abandon_with_message(format!("{} failed", reference.name));
                     Err(e.to_string())
                 }
             }
         });
 
         task_futures.insert(
-            name,
-            task_handle
+            name_key,
+            task_future
                 .map(|r| r.unwrap_or_else(|e| Err(e.to_string())))
                 .boxed()
                 .shared(),
         );
     }
 
-    let mut build_errors = Vec::new();
-    let mut new_states = BTreeMap::new();
-    let task_names: Vec<String> = task_futures.keys().cloned().collect();
-
-    for name in task_names {
-        match task_futures[&name].clone().await {
+    let mut build_errors = false;
+    for (name, fut) in task_futures {
+        match fut.await {
             Ok(completed_ref) => {
-                new_states.insert(name, completed_ref);
+                ctx.state.images.insert(name, completed_ref);
             }
-            Err(e) => build_errors.push(e),
+            Err(_) => build_errors = true,
         }
     }
 
-    if !build_errors.is_empty() {
-        bail!("Build completed with errors");
+    if build_errors {
+        bail!("Build completed with errors.");
     }
 
-    ctx.state.images.extend(new_states);
     ctx.state
         .images
         .retain(|k, _| ctx.config.images.contains_key(k));
     save_state(&ctx)?;
 
-    println!("{} updated.", ctx.paths.state_file.to_string_lossy());
+    drop(multi);
+    println!(
+        "Successfully updated {}",
+        ctx.paths.state_file.to_string_lossy()
+    );
+
     Ok(())
 }
