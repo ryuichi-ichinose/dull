@@ -44,19 +44,19 @@ pub async fn run_push(
             }
         };
 
-        let local_tag = ctx
-            .config
-            .images
-            .get(&name)
-            .map(|p| p.local_tag.as_str())
-            .unwrap_or("latest")
-            .to_string();
+        let target_tag = args.tag.clone().unwrap_or_else(|| {
+            ctx.config
+                .images
+                .get(&name)
+                .map(|p| p.local_tag.clone())
+                .unwrap_or_else(|| "latest".to_string())
+        });
 
         let dest_reference = ImageReference {
             registry: Some(registry_base.clone()),
             namespace: Some(project_namespace.clone()),
             name: name.clone(),
-            tag: Some(local_tag),
+            tag: Some(target_tag),
             digest: None,
         };
 
