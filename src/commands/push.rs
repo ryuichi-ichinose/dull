@@ -1,12 +1,12 @@
 use crate::cli::PushArgs;
 use crate::config::ProjectContext;
-use crate::engine::BuildahEngine;
+use crate::engine::SkopeoEngine;
 use crate::image_reference::ImageReference;
 use anyhow::{Context, Result};
 use std::sync::Arc;
 
 pub async fn run_push(
-    engine: Arc<BuildahEngine>,
+    engine: Arc<SkopeoEngine>,
     ctx: ProjectContext,
     args: PushArgs,
 ) -> Result<()> {

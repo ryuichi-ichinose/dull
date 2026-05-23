@@ -6,7 +6,7 @@ mod engine;
 mod image_reference;
 
 use crate::cli::{Cli, Commands};
-use crate::engine::BuildahEngine;
+use crate::engine::{BuildahEngine, SkopeoEngine};
 use anyhow::Result;
 use clap::Parser;
 use std::sync::Arc;
@@ -36,13 +36,14 @@ async fn main() -> Result<()> {
         // All other commands require the physical .dull/ environment to be fully initialized.
         cmd => {
             let engine = Arc::new(BuildahEngine::new(ctx.clone())?);
+            let skopeo_engine = Arc::new(SkopeoEngine::new(ctx.clone())?);
 
             match cmd {
                 Commands::Login(args) => {
                     commands::login::run_login(engine.as_ref(), ctx, args).await
                 }
                 Commands::Build(args) => commands::build::run_build(engine, ctx, args).await,
-                Commands::Push(args) => commands::push::run_push(engine, ctx, args).await,
+                Commands::Push(args) => commands::push::run_push(skopeo_engine, ctx, args).await,
                 Commands::Shell => commands::shell::run_shell(engine.as_ref(), ctx),
                 Commands::Clean => commands::clean::run_clean(engine.as_ref(), ctx).await,
                 Commands::Gc => commands::gc::run_gc(engine.as_ref(), ctx).await,

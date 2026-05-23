@@ -218,29 +218,6 @@ impl BuildahEngine {
         Ok(completed_reference)
     }
 
-    pub async fn push(
-        &self,
-        source: &ImageReference,
-        destination: &ImageReference,
-    ) -> Result<String> {
-        let digest_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
-        let digest_path = digest_file.path().to_str().unwrap();
-        let src_str = source.to_full_string();
-        let dest_str = format!("docker://{}", destination.to_tag_string());
-
-        let status = self
-            .command("push")
-            .kill_on_drop(true)
-            .args(["--digestfile", digest_path, &src_str, &dest_str])
-            .status()
-            .await?;
-
-        if !status.success() {
-            bail!("Failed to push image to {}", dest_str);
-        }
-        Ok(fs::read_to_string(digest_path)?.trim().to_string())
-    }
-
     /// Analyzes local storage against active references and destroys garbage
     pub async fn gc(
         &self,
