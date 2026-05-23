@@ -225,10 +225,7 @@ impl BuildahEngine {
     ) -> Result<String> {
         let digest_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
         let digest_path = digest_file.path().to_str().unwrap();
-        let src_str = source
-            .digest
-            .clone()
-            .unwrap_or_else(|| source.to_tag_string());
+        let src_str = source.to_full_string();
         let dest_str = format!("docker://{}", destination.to_tag_string());
 
         let status = self
