@@ -77,6 +77,4 @@ pub struct PushArgs {
     pub tag: Option<String>,
     #[arg(short = 'r', long)]
     pub registry: Option<String>,
-    #[arg(long)]
-    pub insecure: bool,
 }
