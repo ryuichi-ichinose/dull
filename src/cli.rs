@@ -77,4 +77,6 @@ pub struct PushArgs {
     pub tag: Option<String>,
     #[arg(short = 'r', long)]
     pub registry: Option<String>,
+    #[arg(short = 'j', long)]
+    pub jobs: Option<usize>,
 }

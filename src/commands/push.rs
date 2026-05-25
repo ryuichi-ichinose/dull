@@ -4,6 +4,7 @@ use crate::engine::SkopeoEngine;
 use crate::image_reference::ImageReference;
 use anyhow::{Context, Result};
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 pub async fn run_push(
     engine: Arc<SkopeoEngine>,
@@ -26,11 +27,24 @@ pub async fn run_push(
         args.images.clone()
     };
 
+    if target_names.is_empty() {
+        println!("No images to push.");
+        return Ok(());
+    }
+
     println!(
         "Pushing {} images to {}...",
         target_names.len(),
         registry_base
     );
+
+    let concurrency = args
+        .jobs
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, |n| n.get()));
+
+    println!("Starting push with max concurrency: {}", concurrency);
+
+    let semaphore = Arc::new(Semaphore::new(concurrency));
 
     let mut handles = Vec::new();
     let project_namespace = ctx.config.project.name.clone();
@@ -61,6 +75,7 @@ pub async fn run_push(
         };
 
         let engine = Arc::clone(&engine);
+        let semaphore_clone = Arc::clone(&semaphore);
         let name_clone = name.clone();
 
         handles.push(tokio::spawn(async move {
