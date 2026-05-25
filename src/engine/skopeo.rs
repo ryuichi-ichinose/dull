@@ -35,6 +35,7 @@ impl SkopeoEngine {
         &self,
         source: &ImageReference,
         destination: &ImageReference,
+        insecure: bool,
     ) -> Result<String> {
         let digest_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
         let digest_path = digest_file.path().to_str().unwrap();
@@ -42,10 +43,15 @@ impl SkopeoEngine {
         let src_str = format!("containers-storage:{}", source.to_full_string());
         let dest_str = format!("docker://{}", destination.to_tag_string());
 
-        let output = self
-            .command()
-            .kill_on_drop(true)
-            .args(["copy", "--digestfile", digest_path, &src_str, &dest_str])
+        let mut cmd = self.command();
+        cmd.kill_on_drop(true).arg("copy");
+
+        if insecure {
+            cmd.arg("--dest-tls-verify=false");
+        }
+
+        let output = cmd
+            .args(["--digestfile", digest_path, &src_str, &dest_str])
             .output()
             .await?;
 

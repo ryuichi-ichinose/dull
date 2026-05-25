@@ -77,4 +77,6 @@ pub struct PushArgs {
     pub registry: Option<String>,
     #[arg(short = 'j', long)]
     pub jobs: Option<usize>,
+    #[arg(long)]
+    pub insecure: bool,
 }

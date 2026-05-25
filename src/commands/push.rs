@@ -84,6 +84,7 @@ pub async fn run_push(
         let multi_clone = Arc::clone(&multi);
         let semaphore_clone = Arc::clone(&semaphore);
         let name_clone = name.clone();
+        let is_insecure = args.insecure;
 
         handles.push(tokio::spawn(async move {
             let _permit = semaphore_clone.acquire().await.expect("Semaphore closed");
@@ -97,7 +98,10 @@ pub async fn run_push(
             pb.set_message(format!("Pushing {}...", name_clone));
             pb.enable_steady_tick(Duration::from_millis(100));
 
-            match engine.push(&local_reference, &dest_reference).await {
+            match engine
+                .push(&local_reference, &dest_reference, is_insecure)
+                .await
+            {
                 Ok(_) => {
                     let local_str = local_reference.to_tag_string();
                     let dest_str = dest_reference.to_tag_string();
