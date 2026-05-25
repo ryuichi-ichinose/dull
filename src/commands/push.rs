@@ -3,7 +3,9 @@ use crate::config::ProjectContext;
 use crate::engine::SkopeoEngine;
 use crate::image_reference::ImageReference;
 use anyhow::{Context, Result};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Semaphore;
 
 pub async fn run_push(
@@ -44,6 +46,7 @@ pub async fn run_push(
 
     println!("Starting push with max concurrency: {}", concurrency);
 
+    let multi = Arc::new(MultiProgress::new());
     let semaphore = Arc::new(Semaphore::new(concurrency));
 
     let mut handles = Vec::new();
@@ -53,7 +56,10 @@ pub async fn run_push(
         let local_reference = match ctx.state.images.get(&name) {
             Some(info) => info.clone(),
             None => {
-                eprintln!("Warning: No state entry for {}. Build it first.", name);
+                let _ = multi.println(format!(
+                    "Warning: No state entry for {}. Build it first.",
+                    name
+                ));
                 continue;
             }
         };
@@ -75,22 +81,34 @@ pub async fn run_push(
         };
 
         let engine = Arc::clone(&engine);
+        let multi_clone = Arc::clone(&multi);
         let semaphore_clone = Arc::clone(&semaphore);
         let name_clone = name.clone();
 
         handles.push(tokio::spawn(async move {
-            println!("-> Pushing {}...", name_clone);
+            let _permit = semaphore_clone.acquire().await.expect("Semaphore closed");
+
+            let pb = multi_clone.add(ProgressBar::new_spinner());
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.blue} [{elapsed_precise}] {msg}")
+                    .unwrap(),
+            );
+            pb.set_message(format!("Pushing {}...", name_clone));
+            pb.enable_steady_tick(Duration::from_millis(100));
 
             match engine.push(&local_reference, &dest_reference).await {
-                Ok(remote_digest) => {
-                    println!(
-                        "DONE: {} pushed. Remote Digest: {}",
-                        name_clone, remote_digest
-                    );
+                Ok(_) => {
+                    let local_str = local_reference.to_tag_string();
+                    let dest_str = dest_reference.to_tag_string();
+
+                    pb.finish_with_message(format!("{} → {}", local_str, dest_str));
+
                     Ok(name_clone)
                 }
                 Err(e) => {
-                    eprintln!("FAIL: Failed to push {}: {}", name_clone, e);
+                    let _ = multi_clone.println(format!("Error pushing {}:\n{}", name_clone, e));
+                    pb.abandon_with_message(format!("{} failed", name_clone));
                     Err(e)
                 }
             }
@@ -103,6 +121,8 @@ pub async fn run_push(
             pushed_count += 1;
         }
     }
+
+    drop(multi);
 
     println!("{} images were successfully pushed.", pushed_count);
     Ok(())

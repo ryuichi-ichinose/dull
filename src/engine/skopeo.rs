@@ -42,16 +42,18 @@ impl SkopeoEngine {
         let src_str = format!("containers-storage:{}", source.to_full_string());
         let dest_str = format!("docker://{}", destination.to_tag_string());
 
-        let status = self
+        let output = self
             .command()
             .kill_on_drop(true)
             .args(["copy", "--digestfile", digest_path, &src_str, &dest_str])
-            .status()
+            .output()
             .await?;
 
-        if !status.success() {
-            bail!("Failed to push image to {}", dest_str);
+        if !output.status.success() {
+            let err_msg = String::from_utf8_lossy(&output.stderr);
+            bail!("Failed to push image to {}:\n{}", dest_str, err_msg.trim());
         }
+
         Ok(fs::read_to_string(digest_path)?.trim().to_string())
     }
 }
