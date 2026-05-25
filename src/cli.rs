@@ -60,8 +60,6 @@ pub struct BuildArgs {
     #[arg(num_args = 1..)]
     pub images: Vec<String>,
     #[arg(long)]
-    pub no_state: bool,
-    #[arg(long)]
     pub tag: Option<String>,
     #[arg(short = 'j', long)]
     pub jobs: Option<usize>,
