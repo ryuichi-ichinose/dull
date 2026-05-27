@@ -59,7 +59,7 @@ pub struct BuildArgs {
     pub all: bool,
     #[arg(num_args = 1..)]
     pub images: Vec<String>,
-    #[arg(long)]
+    #[arg(short, long)]
     pub tag: Option<String>,
     #[arg(short = 'j', long)]
     pub jobs: Option<usize>,
