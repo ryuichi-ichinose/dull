@@ -84,6 +84,7 @@ pub async fn run_push(
         let semaphore_clone = Arc::clone(&semaphore);
         let name_clone = name.clone();
         let is_insecure = args.insecure;
+        let is_force = args.force;
 
         handles.push(tokio::spawn(async move {
             let _permit = semaphore_clone.acquire().await.expect("Semaphore closed");
@@ -94,8 +95,42 @@ pub async fn run_push(
                     .template("{spinner:.blue} [{elapsed_precise}] {msg}")
                     .unwrap(),
             );
-            pb.set_message(format!("Pushing {}...", name_clone));
+
+            pb.set_message(format!(
+                "Checking remote {}...",
+                dest_reference.to_tag_string()
+            ));
             pb.enable_steady_tick(Duration::from_millis(100));
+
+            match engine.inspect_remote(&dest_reference, is_insecure).await {
+                Ok(Some(remote_ref)) => {
+                    // ImageReference 構造体を受け取る
+                    if !is_force {
+                        let remote_tag = remote_ref.to_tag_string();
+                        let err_msg = format!(
+                            "{} already exists.\nUse --force (-f) to overwrite it.",
+                            remote_tag
+                        );
+                        let _ = multi_clone
+                            .println(format!("Conflict for {}:\n{}", name_clone, err_msg));
+                        pb.abandon_with_message(format!("{} blocked", name_clone));
+                        return Err(anyhow::anyhow!("Conflict: Tag already exists"));
+                    } else {
+                        let _ = multi_clone.println(format!(
+                            "Warning: Force overwriting {}...",
+                            remote_ref.to_tag_string()
+                        ));
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    let _ = multi_clone.println(format!("Error checking {}:\n{}", name_clone, e));
+                    pb.abandon_with_message(format!("{} check failed", name_clone));
+                    return Err(e);
+                }
+            }
+
+            pb.set_message(format!("Pushing {}...", name_clone));
 
             match engine
                 .push(&local_reference, &dest_reference, is_insecure)

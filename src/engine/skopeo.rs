@@ -1,6 +1,6 @@
 use crate::config::ProjectContext;
 use crate::image_reference::ImageReference;
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use std::fs;
 use tempfile::NamedTempFile;
 use tokio::process::Command as TokioCommand;
@@ -61,5 +61,50 @@ impl SkopeoEngine {
         }
 
         Ok(fs::read_to_string(digest_path)?.trim().to_string())
+    }
+
+    pub async fn inspect_remote(
+        &self,
+        reference: &ImageReference,
+        insecure: bool,
+    ) -> Result<Option<ImageReference>> {
+        let dest_str = format!("docker://{}", reference.to_tag_string());
+        let mut cmd = self.command();
+        cmd.arg("inspect");
+
+        if insecure {
+            cmd.arg("--tls-verify=false");
+        }
+
+        let output = cmd.arg(&dest_str).output().await?;
+
+        if output.status.success() {
+            let inspect_data: serde_json::Value = serde_json::from_slice(&output.stdout)
+                .context("Failed to parse skopeo inspect JSON output")?;
+
+            let mut remote_ref = reference.clone();
+
+            if let Some(digest) = inspect_data
+                .get("Digest")
+                .and_then(|v: &serde_json::Value| v.as_str())
+            {
+                remote_ref.digest = Some(digest.to_string());
+            } else {
+                remote_ref.digest = Some("unknown".to_string());
+            }
+
+            Ok(Some(remote_ref))
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr).to_lowercase();
+            if err.contains("manifest unknown")
+                || err.contains("not found")
+                || err.contains("404")
+                || err.contains("no such manifest")
+            {
+                Ok(None)
+            } else {
+                bail!("Failed to inspect remote registry:\n{}", err.trim());
+            }
+        }
     }
 }

@@ -79,4 +79,6 @@ pub struct PushArgs {
     pub jobs: Option<usize>,
     #[arg(long)]
     pub insecure: bool,
+    #[arg(short = 'f', long)]
+    pub force: bool,
 }
