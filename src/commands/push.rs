@@ -65,10 +65,9 @@ pub async fn run_push(
         };
 
         let target_tag = args.tag.clone().unwrap_or_else(|| {
-            ctx.config
-                .images
-                .get(&name)
-                .map(|p| p.local_tag.clone())
+            local_reference
+                .tag
+                .clone()
                 .unwrap_or_else(|| "latest".to_string())
         });
 
