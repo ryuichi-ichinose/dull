@@ -8,6 +8,77 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 
+async fn push_single_image(
+    engine: Arc<SkopeoEngine>,
+    multi: Arc<MultiProgress>,
+    semaphore: Arc<Semaphore>,
+    local_reference: ImageReference,
+    dest_reference: ImageReference,
+    name: String,
+    is_insecure: bool,
+    is_force: bool,
+) -> Result<String> {
+    let _permit = semaphore.acquire().await.expect("Semaphore closed");
+
+    let pb = multi.add(ProgressBar::new_spinner());
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.blue} [{elapsed_precise}] {msg}")
+            .unwrap(),
+    );
+
+    pb.set_message(format!(
+        "Checking remote {}...",
+        dest_reference.to_tag_string()
+    ));
+    pb.enable_steady_tick(Duration::from_millis(100));
+
+    match engine.inspect_remote(&dest_reference, is_insecure).await {
+        Ok(Some(remote_ref)) => {
+            if !is_force {
+                let remote_tag = remote_ref.to_tag_string();
+                let err_msg = format!(
+                    "{} already exists.\nUse --force (-f) to overwrite it.",
+                    remote_tag
+                );
+                let _ = multi.println(format!("Conflict for {}:\n{}", name, err_msg));
+                pb.abandon_with_message(format!("{} blocked", name));
+                return Err(anyhow::anyhow!("Conflict: Tag already exists"));
+            } else {
+                let _ = multi.println(format!(
+                    "Warning: Force overwriting {}...",
+                    remote_ref.to_tag_string()
+                ));
+            }
+        }
+        Ok(None) => {}
+        Err(e) => {
+            let _ = multi.println(format!("Error checking {}:\n{}", name, e));
+            pb.abandon_with_message(format!("{} check failed", name));
+            return Err(e);
+        }
+    }
+
+    pb.set_message(format!("Pushing {}...", name));
+
+    match engine
+        .push(&local_reference, &dest_reference, is_insecure)
+        .await
+    {
+        Ok(_) => {
+            let local_str = local_reference.to_tag_string();
+            let dest_str = dest_reference.to_tag_string();
+            pb.finish_with_message(format!("{} → {}", local_str, dest_str));
+            Ok(name)
+        }
+        Err(e) => {
+            let _ = multi.println(format!("Error pushing {}:\n{}", name, e));
+            pb.abandon_with_message(format!("{} failed", name));
+            Err(e)
+        }
+    }
+}
+
 pub async fn run_push(
     engine: Arc<SkopeoEngine>,
     ctx: ProjectContext,
@@ -79,7 +150,7 @@ pub async fn run_push(
             digest: None,
         };
 
-        let engine = Arc::clone(&engine);
+        let engine_clone = Arc::clone(&engine);
         let multi_clone = Arc::clone(&multi);
         let semaphore_clone = Arc::clone(&semaphore);
         let name_clone = name.clone();
@@ -87,69 +158,17 @@ pub async fn run_push(
         let is_force = args.force;
 
         handles.push(tokio::spawn(async move {
-            let _permit = semaphore_clone.acquire().await.expect("Semaphore closed");
-
-            let pb = multi_clone.add(ProgressBar::new_spinner());
-            pb.set_style(
-                ProgressStyle::default_spinner()
-                    .template("{spinner:.blue} [{elapsed_precise}] {msg}")
-                    .unwrap(),
-            );
-
-            pb.set_message(format!(
-                "Checking remote {}...",
-                dest_reference.to_tag_string()
-            ));
-            pb.enable_steady_tick(Duration::from_millis(100));
-
-            match engine.inspect_remote(&dest_reference, is_insecure).await {
-                Ok(Some(remote_ref)) => {
-                    // ImageReference 構造体を受け取る
-                    if !is_force {
-                        let remote_tag = remote_ref.to_tag_string();
-                        let err_msg = format!(
-                            "{} already exists.\nUse --force (-f) to overwrite it.",
-                            remote_tag
-                        );
-                        let _ = multi_clone
-                            .println(format!("Conflict for {}:\n{}", name_clone, err_msg));
-                        pb.abandon_with_message(format!("{} blocked", name_clone));
-                        return Err(anyhow::anyhow!("Conflict: Tag already exists"));
-                    } else {
-                        let _ = multi_clone.println(format!(
-                            "Warning: Force overwriting {}...",
-                            remote_ref.to_tag_string()
-                        ));
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    let _ = multi_clone.println(format!("Error checking {}:\n{}", name_clone, e));
-                    pb.abandon_with_message(format!("{} check failed", name_clone));
-                    return Err(e);
-                }
-            }
-
-            pb.set_message(format!("Pushing {}...", name_clone));
-
-            match engine
-                .push(&local_reference, &dest_reference, is_insecure)
-                .await
-            {
-                Ok(_) => {
-                    let local_str = local_reference.to_tag_string();
-                    let dest_str = dest_reference.to_tag_string();
-
-                    pb.finish_with_message(format!("{} → {}", local_str, dest_str));
-
-                    Ok(name_clone)
-                }
-                Err(e) => {
-                    let _ = multi_clone.println(format!("Error pushing {}:\n{}", name_clone, e));
-                    pb.abandon_with_message(format!("{} failed", name_clone));
-                    Err(e)
-                }
-            }
+            push_single_image(
+                engine_clone,
+                multi_clone,
+                semaphore_clone,
+                local_reference,
+                dest_reference,
+                name_clone,
+                is_insecure,
+                is_force,
+            )
+            .await
         }));
     }
 
