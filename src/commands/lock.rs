@@ -4,7 +4,6 @@ use crate::engine::SkopeoEngine;
 use crate::image_reference::{ImageReference, parse_oci_reference};
 use anyhow::{Context, Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -130,23 +129,31 @@ pub async fn run_lock(
         }));
     }
 
-    let mut locked_images = BTreeMap::new();
-    let mut errors = false;
+    let mut error_messages = Vec::new();
 
     for handle in handles {
         match handle.await {
             Ok(Ok((ref_str, locked_ref))) => {
-                locked_images.insert(ref_str, locked_ref);
+                final_locks.insert(ref_str, locked_ref);
             }
-            _ => errors = true,
+            Ok(Err(e)) => {
+                error_messages.push(e.to_string());
+            }
+            Err(e) => {
+                error_messages.push(format!("Task panicked: {}", e));
+            }
         }
     }
 
-    if errors {
-        anyhow::bail!("Locking completed with errors.");
+    if !error_messages.is_empty() {
+        drop(multi);
+        for err in error_messages {
+            eprintln!("Error: {}", err);
+        }
+        bail!("Locking completed with errors.");
     }
 
-    ctx.lock.images = locked_images;
+    ctx.lock.images = final_locks;
     save_lock(&ctx)?;
 
     drop(multi);
