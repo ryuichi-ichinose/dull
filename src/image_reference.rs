@@ -10,6 +10,25 @@ pub struct ImageReference {
 }
 
 impl ImageReference {
+    pub fn to_digest_string(&self) -> String {
+        let mut s = String::new();
+        if let Some(ref reg) = self.registry {
+            s.push_str(reg);
+            s.push('/');
+        }
+        if let Some(ref ns) = self.namespace {
+            s.push_str(ns);
+            s.push('/');
+        }
+        s.push_str(&self.name);
+
+        if let Some(ref digest) = self.digest {
+            s.push('@');
+            s.push_str(digest);
+        }
+        s
+    }
+
     pub fn to_tag_string(&self) -> String {
         let mut s = String::new();
         if let Some(ref reg) = self.registry {

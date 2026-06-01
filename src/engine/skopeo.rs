@@ -57,7 +57,44 @@ impl SkopeoEngine {
 
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);
-            bail!("Failed to push image to {}:\n{}", dest_str, err_msg.trim());
+            bail!(
+                "Failed to push image from {} to {}:\n{}",
+                src_str,
+                dest_str,
+                err_msg.trim()
+            );
+        }
+
+        Ok(fs::read_to_string(digest_path)?.trim().to_string())
+    }
+
+    pub async fn fetch(&self, reference: &ImageReference, insecure: bool) -> Result<String> {
+        let src_str = format!("docker://{}", reference.to_digest_string());
+        let dest_str = format!("containers-storage:{}", reference.to_tag_string());
+
+        let digest_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
+        let digest_path = digest_file.path().to_str().unwrap();
+
+        let mut cmd = self.command();
+        cmd.kill_on_drop(true).arg("copy");
+
+        if insecure {
+            cmd.arg("--src-tls-verify=false");
+        }
+
+        let output = cmd
+            .args(["--digestfile", digest_path, &src_str, &dest_str])
+            .output()
+            .await?;
+
+        if !output.status.success() {
+            let err_msg = String::from_utf8_lossy(&output.stderr);
+            bail!(
+                "Failed to fetch image from {} to {}:\n{}",
+                src_str,
+                dest_str,
+                err_msg.trim()
+            );
         }
 
         Ok(fs::read_to_string(digest_path)?.trim().to_string())

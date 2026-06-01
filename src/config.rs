@@ -45,6 +45,8 @@ pub struct DullConfig {
     #[serde(default)]
     pub registries: BTreeMap<String, RegistryProfile>,
     #[serde(default)]
+    pub dependencies: Vec<String>,
+    #[serde(default)]
     pub images: BTreeMap<String, ImageProfile>,
 }
 
@@ -53,11 +55,17 @@ pub struct DullState {
     pub images: BTreeMap<String, ImageReference>,
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct DullLock {
+    pub images: BTreeMap<String, ImageReference>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ProjectPaths {
     pub root: PathBuf,
     pub config_file: PathBuf,
     pub state_file: PathBuf,
+    pub lock_file: PathBuf,
     pub dull_dir: PathBuf,
     pub containers_dir: PathBuf,
     pub storage_dir: PathBuf,
@@ -73,6 +81,7 @@ impl ProjectPaths {
         Self {
             config_file: root.join("dull.toml"),
             state_file: root.join(".dull").join("dull_state.json"),
+            lock_file: root.join("dull.lock"),
             storage_dir: containers_dir.join("storage"),
             storage_conf: containers_dir.join("storage.conf"),
             tmp_dir: containers_dir.join("tmp"),
@@ -87,6 +96,7 @@ pub struct ProjectContext {
     pub paths: ProjectPaths,
     pub config: DullConfig,
     pub state: DullState,
+    pub lock: DullLock,
 }
 
 pub fn load_project_context() -> Result<ProjectContext> {
@@ -112,10 +122,18 @@ pub fn load_project_context() -> Result<ProjectContext> {
         DullState::default()
     };
 
+    let lock = if paths.lock_file.exists() {
+        let content = fs::read_to_string(&paths.lock_file)?;
+        serde_json::from_str(&content).context("Failed to parse dull.lock")?
+    } else {
+        DullLock::default()
+    };
+
     Ok(ProjectContext {
         paths,
         config,
         state,
+        lock,
     })
 }
 
@@ -152,4 +170,9 @@ pub fn save_config(ctx: &ProjectContext) -> Result<()> {
 pub fn save_state(ctx: &ProjectContext) -> Result<()> {
     let content = serde_json::to_string_pretty(&ctx.state)?;
     write_atomic(&ctx.paths.state_file, &content)
+}
+
+pub fn save_lock(ctx: &ProjectContext) -> Result<()> {
+    let content = serde_json::to_string_pretty(&ctx.lock)?;
+    write_atomic(&ctx.paths.lock_file, &content)
 }

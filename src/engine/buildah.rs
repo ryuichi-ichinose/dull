@@ -116,8 +116,13 @@ impl BuildahEngine {
         let iid_path = iid_file.path().to_str().unwrap();
 
         let mut cmd = self.command("bud");
-        cmd.kill_on_drop(true)
-            .args(["--format=oci", "--layers=true", "--iidfile", iid_path]);
+        cmd.kill_on_drop(true).args([
+            "--format=oci",
+            "--layers=true",
+            "--pull=never",
+            "--iidfile",
+            iid_path,
+        ]);
 
         for (k, v) in opts.build_args {
             cmd.arg("--build-arg").arg(format!("{}={}", k, v));

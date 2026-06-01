@@ -14,6 +14,8 @@ pub enum Commands {
     Scan(ScanArgs),
     Login(LoginArgs),
     Registry(RegistryArgs),
+    Lock,
+    Fetch,
     Build(BuildArgs),
     Push(PushArgs),
     Shell,
