@@ -1,7 +1,7 @@
 use crate::config::{ProjectContext, save_lock};
 use crate::engine::SkopeoEngine;
 use crate::image_reference::{ImageReference, parse_oci_reference};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -18,6 +18,14 @@ async fn lock_single_image(
 
     let reference = parse_oci_reference(&reference_str)
         .with_context(|| format!("Failed to parse dependency: {}", reference_str))?;
+
+    if reference.registry.is_none() {
+        bail!(
+            "Short-name '{}' is forbidden for reproducibility.\n\
+         Please specify a Fully Qualified Image Name (FQIN) (e.g., 'docker.io/library/ubuntu:latest' or 'quay.io/fedora/fedora:latest').",
+            reference_str
+        );
+    }
 
     let pb = multi.add(ProgressBar::new_spinner());
     pb.set_style(
