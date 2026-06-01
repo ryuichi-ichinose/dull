@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
                 Commands::Push(args) => commands::push::run_push(skopeo_engine, ctx, args).await,
                 Commands::Shell => commands::shell::run_shell(engine.as_ref(), ctx),
                 Commands::Clean => commands::clean::run_clean(engine.as_ref(), ctx).await,
-                Commands::Gc => commands::gc::run_gc(engine.as_ref(), ctx).await,
+                Commands::Gc(args) => commands::gc::run_gc(engine.as_ref(), ctx, args).await,
                 _ => unreachable!(),
             }
         }

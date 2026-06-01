@@ -1,24 +1,48 @@
+use crate::cli::GcArgs;
 use crate::config::ProjectContext;
 use crate::engine::BuildahEngine;
 use anyhow::Result;
 use std::collections::HashSet;
 
-pub async fn run_gc(engine: &BuildahEngine, ctx: ProjectContext) -> Result<()> {
+pub async fn run_gc(engine: &BuildahEngine, ctx: ProjectContext, args: GcArgs) -> Result<()> {
     let mut active_hashes = HashSet::new();
     let mut active_refs = HashSet::new();
 
-    for reference in ctx.state.images.values() {
-        if let Some(ref d) = reference.digest {
-            active_hashes.insert(d.clone());
+    if !args.lock_only {
+        for reference in ctx.state.images.values() {
+            if let Some(ref d) = reference.digest {
+                active_hashes.insert(d.clone());
+            }
+            active_refs.insert(reference.to_tag_string());
         }
-        active_refs.insert(reference.to_tag_string());
     }
 
-    println!(
-        "Found {} active images in {}",
-        active_hashes.len(),
-        ctx.paths.state_file.to_string_lossy()
-    );
+    if !args.state_only {
+        for reference in ctx.lock.images.values() {
+            if let Some(ref d) = reference.digest {
+                active_hashes.insert(d.clone());
+            }
+            active_refs.insert(reference.to_tag_string());
+        }
+    }
+
+    if args.state_only {
+        println!(
+            "STATE-ONLY MODE: Tracking {} built images. Fetched base images will be removed...",
+            ctx.state.images.len()
+        );
+    } else if args.lock_only {
+        println!(
+            "LOCK-ONLY MODE: Tracking {} base images. Built images will be removed...",
+            ctx.lock.images.len()
+        );
+    } else {
+        println!(
+            "Tracking {} built images (state) and {} base images (lock)...",
+            ctx.state.images.len(),
+            ctx.lock.images.len()
+        );
+    }
 
     let report = engine.gc(&active_hashes, &active_refs).await?;
 

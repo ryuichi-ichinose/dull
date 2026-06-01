@@ -20,7 +20,7 @@ pub enum Commands {
     Push(PushArgs),
     Shell,
     Clean,
-    Gc,
+    Gc(GcArgs),
 }
 
 #[derive(Args)]
@@ -91,4 +91,12 @@ pub struct LockArgs {
     pub upgrade: bool,
     #[arg(num_args = 0..)]
     pub images: Vec<String>,
+}
+
+#[derive(Args)]
+pub struct GcArgs {
+    #[arg(long, conflicts_with = "lock_only")]
+    pub state_only: bool,
+    #[arg(long, conflicts_with = "state_only")]
+    pub lock_only: bool,
 }
