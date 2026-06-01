@@ -14,7 +14,7 @@ pub enum Commands {
     Scan(ScanArgs),
     Login(LoginArgs),
     Registry(RegistryArgs),
-    Lock,
+    Lock(LockArgs),
     Fetch,
     Build(BuildArgs),
     Push(PushArgs),
@@ -83,4 +83,12 @@ pub struct PushArgs {
     pub insecure: bool,
     #[arg(short = 'f', long)]
     pub force: bool,
+}
+
+#[derive(Args)]
+pub struct LockArgs {
+    #[arg(short, long)]
+    pub upgrade: bool,
+    #[arg(num_args = 0..)]
+    pub images: Vec<String>,
 }

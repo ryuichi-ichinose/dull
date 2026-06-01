@@ -1,3 +1,4 @@
+use crate::cli::LockArgs;
 use crate::config::{ProjectContext, save_lock};
 use crate::engine::SkopeoEngine;
 use crate::image_reference::{ImageReference, parse_oci_reference};
@@ -54,13 +55,64 @@ async fn lock_single_image(
     }
 }
 
-pub async fn run_lock(engine: Arc<SkopeoEngine>, mut ctx: ProjectContext) -> Result<()> {
+pub async fn run_lock(
+    engine: Arc<SkopeoEngine>,
+    mut ctx: ProjectContext,
+    args: LockArgs,
+) -> Result<()> {
     if ctx.config.dependencies.is_empty() {
-        println!("No dependencies to lock.");
+        println!("No dependencies defined in dull.toml.");
         return Ok(());
     }
 
-    println!("Locking {} dependencies...", ctx.config.dependencies.len());
+    let mut to_resolve = Vec::new();
+    let mut final_locks = ctx.lock.images.clone();
+
+    if args.upgrade {
+        if args.images.is_empty() {
+            to_resolve = ctx.config.dependencies.clone();
+            final_locks.clear();
+        } else {
+            for target in &args.images {
+                if !ctx.config.dependencies.contains(target) {
+                    bail!("Dependency '{}' is not defined in dull.toml.", target);
+                }
+                to_resolve.push(target.clone());
+                final_locks.remove(target);
+            }
+        }
+    } else {
+        if args.images.is_empty() {
+            for dep in &ctx.config.dependencies {
+                if !ctx.lock.images.contains_key(dep) {
+                    to_resolve.push(dep.clone());
+                }
+            }
+            if to_resolve.is_empty() {
+                bail!(
+                    "All dependencies are already locked.\n\
+                     Use 'dull lock --upgrade' to update all, or 'dull lock --upgrade <IMAGE>' to update a specific one."
+                );
+            }
+        } else {
+            for target in &args.images {
+                if !ctx.config.dependencies.contains(target) {
+                    bail!("Dependency '{}' is not defined in dull.toml.", target);
+                }
+                if ctx.lock.images.contains_key(target) {
+                    bail!(
+                        "Dependency '{}' is already locked.\n\
+                         To overwrite it with the latest digest, use 'dull lock --upgrade {}'",
+                        target,
+                        target
+                    );
+                }
+                to_resolve.push(target.clone());
+            }
+        }
+    }
+
+    println!("Locking {} dependencies...", to_resolve.len());
 
     let concurrency = std::thread::available_parallelism().map_or(4, |n| n.get());
     let semaphore = Arc::new(Semaphore::new(concurrency));
