@@ -49,8 +49,22 @@ pub async fn run_lock(
     mut ctx: ProjectContext,
     args: LockArgs,
 ) -> Result<()> {
+    let initial_lock_count = ctx.lock.images.len();
+    ctx.lock
+        .images
+        .retain(|k, _| ctx.config.dependencies.contains(k));
+    let pruned_count = initial_lock_count - ctx.lock.images.len();
+
+    if pruned_count > 0 {
+        println!("Pruned {} stale dependencies from lockfile.", pruned_count);
+    }
+
     if ctx.config.dependencies.is_empty() {
         println!("No dependencies defined in dull.toml.");
+        if pruned_count > 0 {
+            save_lock(&ctx)?;
+            println!("Lock file updated: {:?}", ctx.paths.lock_file);
+        }
         return Ok(());
     }
     let mut parsed_deps = Vec::new();
