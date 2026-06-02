@@ -2,6 +2,7 @@ use crate::cli::ScanArgs;
 use crate::config::{ImageProfile, ProjectContext, save_config};
 use anyhow::{Result, bail};
 use ignore::WalkBuilder;
+use ignore::overrides::OverrideBuilder;
 use std::collections::BTreeMap;
 
 fn is_valid_image_name(name: &str) -> bool {
@@ -47,7 +48,21 @@ pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
 
     println!("Scanning for Containerfiles...");
 
+    let mut override_builder = OverrideBuilder::new(&ctx.paths.root);
+    override_builder.add("**/Dockerfile")?;
+    override_builder.add("**/Containerfile")?;
+    override_builder.add("**/*.Dockerfile")?;
+    override_builder.add("**/*.Containerfile")?;
+    override_builder.add("Dockerfile")?;
+    override_builder.add("Containerfile")?;
+    override_builder.add("*.Dockerfile")?;
+    override_builder.add("*.Containerfile")?;
+    let overrides = override_builder.build()?;
+
     let mut builder = WalkBuilder::new(ctx.paths.root.join(&target_dirs[0]));
+
+    builder.overrides(overrides);
+
     for dir in target_dirs.iter().skip(1) {
         builder.add(ctx.paths.root.join(dir));
     }
@@ -60,50 +75,70 @@ pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
         let path = entry.path();
         let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-        if fname == "Dockerfile" || fname == "Containerfile" || fname.ends_with(".Containerfile") {
-            let rel_path = path
-                .strip_prefix(&ctx.paths.root)?
-                .to_string_lossy()
-                .to_string();
-            let parent = path.parent().unwrap_or(&ctx.paths.root);
-            let context_path = parent
-                .strip_prefix(&ctx.paths.root)?
-                .to_string_lossy()
-                .to_string();
+        let file_prefix = if fname == "Dockerfile" || fname == "Containerfile" {
+            ""
+        } else if let Some(prefix) = fname.strip_suffix(".Dockerfile") {
+            prefix
+        } else if let Some(prefix) = fname.strip_suffix(".Containerfile") {
+            prefix
+        } else {
+            continue;
+        };
 
-            let name = if context_path.is_empty() {
-                "root".to_string()
-            } else {
-                context_path.replace(std::path::MAIN_SEPARATOR, "-")
-            }
-            .to_lowercase();
+        let rel_path = path
+            .strip_prefix(&ctx.paths.root)?
+            .to_string_lossy()
+            .to_string();
+        let parent = path.parent().unwrap_or(&ctx.paths.root);
+        let context_path = parent
+            .strip_prefix(&ctx.paths.root)?
+            .to_string_lossy()
+            .to_string();
 
-            if !is_valid_image_name(&name) {
-                bail!(
-                    "Invalid image name '{}' derived from path '{}'. \
-                     Image names must be OCI compliant (lowercase alphanumeric, dots, underscores, and dashes).",
-                    name,
-                    rel_path
-                );
-            }
+        let mut base_name = if context_path.is_empty() {
+            "root".to_string()
+        } else {
+            context_path.replace(std::path::MAIN_SEPARATOR, "-")
+        };
 
-            let context_str = if let Some(ref c) = args.context {
-                c.clone()
-            } else if context_path.is_empty() {
-                ".".to_string()
-            } else {
-                context_path
-            };
+        if !file_prefix.is_empty() {
+            base_name = format!("{}-{}", base_name, file_prefix);
+        }
 
-            disk_images.insert(
+        let name = base_name.to_lowercase();
+
+        if !is_valid_image_name(&name) {
+            bail!(
+                "Invalid image name '{}' derived from path '{}'. \
+                 Image names must be OCI compliant (lowercase alphanumeric, dots, underscores, and dashes).",
                 name,
-                ImageProfile {
-                    path: rel_path,
-                    depends_on: Vec::new(),
-                    local_tag: "latest".to_string(),
-                    context: context_str,
-                    args: BTreeMap::new(),
-                },
+                rel_path
+            );
+        }
+
+        let context_str = if let Some(ref c) = args.context {
+            c.clone()
+        } else if context_path.is_empty() {
+            ".".to_string()
+        } else {
+            context_path
+        };
+
+        let profile = ImageProfile {
+            path: rel_path,
+            depends_on: Vec::new(),
+            local_tag: "latest".to_string(),
+            context: context_str,
+            args: BTreeMap::new(),
+        };
+
+        if let Some(existing) = disk_images.insert(name.clone(), profile.clone()) {
+            bail!(
+                "Image name collision detected: The lowercase OCI name '{}' is generated for both '{}' and '{}'.\n\
+                 OCI image names must be unique and lowercase. Please resolve this ambiguity by renaming the directories or files.",
+                name,
+                existing.path,
+                profile.path
             );
         }
     }
