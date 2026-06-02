@@ -13,19 +13,9 @@ async fn lock_single_image(
     multi: Arc<MultiProgress>,
     semaphore: Arc<Semaphore>,
     reference_str: String,
+    reference: ImageReference,
 ) -> Result<(String, ImageReference)> {
     let _permit = semaphore.acquire().await.map_err(|e| anyhow::anyhow!(e))?;
-
-    let reference = parse_oci_reference(&reference_str)
-        .with_context(|| format!("Failed to parse dependency: {}", reference_str))?;
-
-    if reference.registry.is_none() {
-        bail!(
-            "Short-name '{}' is forbidden for reproducibility.\n\
-         Please specify a Fully Qualified Image Name (FQIN) (e.g., 'docker.io/library/ubuntu:latest' or 'quay.io/fedora/fedora:latest').",
-            reference_str
-        );
-    }
 
     let pb = multi.add(ProgressBar::new_spinner());
     pb.set_style(
@@ -63,28 +53,48 @@ pub async fn run_lock(
         println!("No dependencies defined in dull.toml.");
         return Ok(());
     }
+    let mut parsed_deps = Vec::new();
+    for dep_str in &ctx.config.dependencies {
+        let mut reference = parse_oci_reference(dep_str)
+            .with_context(|| format!("Failed to parse dependency: {}", dep_str))?;
+
+        if reference.registry.is_none() {
+            bail!(
+                "Short-name '{}' is forbidden for reproducibility.\n\
+                 Please specify a Fully Qualified Image Name (FQIN) (e.g., 'docker.io/library/ubuntu:latest' or 'quay.io/fedora/fedora:latest').",
+                dep_str
+            );
+        }
+
+        if reference.tag.is_none() && reference.digest.is_none() {
+            reference.tag = Some("latest".to_string());
+        }
+
+        parsed_deps.push((dep_str.clone(), reference));
+    }
 
     let mut to_resolve = Vec::new();
     let mut final_locks = ctx.lock.images.clone();
 
     if args.upgrade {
         if args.images.is_empty() {
-            to_resolve = ctx.config.dependencies.clone();
+            to_resolve = parsed_deps;
             final_locks.clear();
         } else {
             for target in &args.images {
-                if !ctx.config.dependencies.contains(target) {
+                if let Some(pos) = parsed_deps.iter().position(|(s, _)| s == target) {
+                    to_resolve.push(parsed_deps[pos].clone());
+                    final_locks.remove(target);
+                } else {
                     bail!("Dependency '{}' is not defined in dull.toml.", target);
                 }
-                to_resolve.push(target.clone());
-                final_locks.remove(target);
             }
         }
     } else {
         if args.images.is_empty() {
-            for dep in &ctx.config.dependencies {
-                if !ctx.lock.images.contains_key(dep) {
-                    to_resolve.push(dep.clone());
+            for (dep_str, reference) in parsed_deps {
+                if !ctx.lock.images.contains_key(&dep_str) {
+                    to_resolve.push((dep_str, reference));
                 }
             }
             if to_resolve.is_empty() {
@@ -95,18 +105,19 @@ pub async fn run_lock(
             }
         } else {
             for target in &args.images {
-                if !ctx.config.dependencies.contains(target) {
+                if let Some(pos) = parsed_deps.iter().position(|(s, _)| s == target) {
+                    if ctx.lock.images.contains_key(target) {
+                        bail!(
+                            "Dependency '{}' is already locked.\n\
+                             To overwrite it with the latest digest, use 'dull lock --upgrade {}'",
+                            target,
+                            target
+                        );
+                    }
+                    to_resolve.push(parsed_deps[pos].clone());
+                } else {
                     bail!("Dependency '{}' is not defined in dull.toml.", target);
                 }
-                if ctx.lock.images.contains_key(target) {
-                    bail!(
-                        "Dependency '{}' is already locked.\n\
-                         To overwrite it with the latest digest, use 'dull lock --upgrade {}'",
-                        target,
-                        target
-                    );
-                }
-                to_resolve.push(target.clone());
             }
         }
     }
@@ -119,13 +130,20 @@ pub async fn run_lock(
 
     let mut handles = Vec::new();
 
-    for reference_str in ctx.config.dependencies.clone() {
+    for (reference_str, reference) in to_resolve {
         let semaphore_clone = Arc::clone(&semaphore);
         let engine_clone = Arc::clone(&engine);
         let multi_clone = Arc::clone(&multi);
 
         handles.push(tokio::spawn(async move {
-            lock_single_image(engine_clone, multi_clone, semaphore_clone, reference_str).await
+            lock_single_image(
+                engine_clone,
+                multi_clone,
+                semaphore_clone,
+                reference_str,
+                reference,
+            )
+            .await
         }));
     }
 
