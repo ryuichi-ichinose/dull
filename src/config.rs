@@ -124,7 +124,7 @@ pub fn load_project_context() -> Result<ProjectContext> {
 
     let lock = if paths.lock_file.exists() {
         let content = fs::read_to_string(&paths.lock_file)?;
-        serde_json::from_str(&content).context("Failed to parse dull.lock")?
+        toml::from_str(&content).context("Failed to parse dull.lock")?
     } else {
         DullLock::default()
     };
@@ -173,6 +173,6 @@ pub fn save_state(ctx: &ProjectContext) -> Result<()> {
 }
 
 pub fn save_lock(ctx: &ProjectContext) -> Result<()> {
-    let content = serde_json::to_string_pretty(&ctx.lock)?;
+    let content = toml::to_string_pretty(&ctx.lock)?;
     write_atomic(&ctx.paths.lock_file, &content)
 }
