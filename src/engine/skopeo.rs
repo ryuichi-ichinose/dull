@@ -24,6 +24,12 @@ impl SkopeoEngine {
         let mut cmd = TokioCommand::new("skopeo");
         cmd.env("CONTAINERS_STORAGE_CONF", &self.ctx.paths.storage_conf)
             .env("TMPDIR", &self.ctx.paths.tmp_dir);
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                Ok(())
+            });
+        }
         cmd
     }
 

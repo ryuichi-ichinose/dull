@@ -62,17 +62,31 @@ impl BuildahEngine {
         let mut cmd = TokioCommand::new("buildah");
         cmd.env("CONTAINERS_STORAGE_CONF", &self.ctx.paths.storage_conf)
             .env("TMPDIR", &self.ctx.paths.tmp_dir);
+
         if !subcmd.is_empty() {
             cmd.arg(subcmd);
+        }
+
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                Ok(())
+            });
         }
         cmd
     }
 
-    /// Core helper for synchronous std::process::Command (used for exec/shell)
     pub fn std_command(&self, program: &str) -> std::process::Command {
         let mut cmd = std::process::Command::new(program);
         cmd.env("CONTAINERS_STORAGE_CONF", &self.ctx.paths.storage_conf)
             .env("TMPDIR", &self.ctx.paths.tmp_dir);
+
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                Ok(())
+            });
+        }
         cmd
     }
 
