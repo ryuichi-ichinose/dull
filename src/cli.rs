@@ -21,6 +21,7 @@ pub enum Commands {
     Shell,
     Clean,
     Gc(GcArgs),
+    Images(ImagesArgs),
 }
 
 #[derive(Args)]
@@ -99,4 +100,21 @@ pub struct GcArgs {
     pub state_only: bool,
     #[arg(long, conflicts_with = "state_only")]
     pub lock_only: bool,
+}
+
+#[derive(Args)]
+pub struct ImagesArgs {
+    /// Show ONLY images from dull_state.json (built images)
+    #[arg(long, conflicts_with = "lock")]
+    pub state: bool,
+
+    /// Show ONLY images from dull.lock (fetched base images)
+    #[arg(long, conflicts_with = "state")]
+    pub lock: bool,
+
+    /// Show ALL images in local storage, including untracked ones
+    #[arg(short, long)]
+    pub all: bool,
+    #[arg(long)]
+    pub json: bool,
 }

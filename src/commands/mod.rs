@@ -2,6 +2,7 @@ pub mod build;
 pub mod clean;
 pub mod fetch;
 pub mod gc;
+pub mod images;
 pub mod init;
 pub mod lock;
 pub mod login;
