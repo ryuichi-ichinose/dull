@@ -3,6 +3,7 @@ use crate::engine::version::{MIN_SKOPEO_VERSION, require_tool_version};
 use crate::image_reference::ImageReference;
 use anyhow::{Context, Result, bail};
 use std::fs;
+use std::io::Write;
 use tempfile::NamedTempFile;
 use tokio::process::Command as TokioCommand;
 
@@ -109,7 +110,7 @@ impl SkopeoEngine {
     ) -> Result<Option<ImageReference>> {
         let dest_str = format!("docker://{}", reference.to_tag_string());
         let mut cmd = self.command();
-        cmd.arg("inspect");
+        cmd.arg("inspect").arg("--raw");
 
         if insecure {
             cmd.arg("--tls-verify=false");
@@ -118,19 +119,31 @@ impl SkopeoEngine {
         let output = cmd.arg(&dest_str).output().await?;
 
         if output.status.success() {
-            let inspect_data: serde_json::Value = serde_json::from_slice(&output.stdout)
-                .context("Failed to parse skopeo inspect JSON output")?;
+            let mut temp_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
+            temp_file.write_all(&output.stdout)?;
+            let temp_path = temp_file.path().to_str().unwrap();
+
+            let mut digest_cmd = self.command();
+            let digest_output = digest_cmd
+                .arg("manifest-digest")
+                .arg(temp_path)
+                .output()
+                .await?;
+
+            if !digest_output.status.success() {
+                let err_msg = String::from_utf8_lossy(&digest_output.stderr);
+                bail!(
+                    "Failed to calculate manifest digest using skopeo:\n{}",
+                    err_msg.trim()
+                );
+            }
+
+            let digest_str = String::from_utf8_lossy(&digest_output.stdout)
+                .trim()
+                .to_string();
 
             let mut remote_ref = reference.clone();
-
-            if let Some(digest) = inspect_data
-                .get("Digest")
-                .and_then(|v: &serde_json::Value| v.as_str())
-            {
-                remote_ref.digest = Some(digest.to_string());
-            } else {
-                remote_ref.digest = Some("unknown".to_string());
-            }
+            remote_ref.digest = Some(digest_str);
 
             Ok(Some(remote_ref))
         } else {
