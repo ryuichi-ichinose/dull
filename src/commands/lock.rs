@@ -82,7 +82,11 @@ pub async fn run_lock(
         }
 
         if reference.tag.is_none() && reference.digest.is_none() {
-            reference.tag = Some("latest".to_string());
+            bail!(
+                "Tag or digest is missing for '{}'.\n\
+                 For reproducibility, you must explicitly specify a tag or digest (e.g., ':latest' or '@sha256:...').",
+                dep_str
+            );
         }
 
         parsed_deps.insert(dep_str.clone(), reference);
