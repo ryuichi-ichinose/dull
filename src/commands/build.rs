@@ -42,7 +42,7 @@ pub async fn run_build(
     let multi = Arc::new(MultiProgress::new());
     let mut task_futures: HashMap<String, SharedTaskFuture> = HashMap::new();
 
-    let base_project_name = ctx.config.project.name.clone();
+    let base_namespace = ctx.config.project.namespace.clone();
     let base_root = ctx.paths.root.clone();
 
     for task in plan.tasks {
@@ -53,7 +53,7 @@ pub async fn run_build(
         let engine = Arc::clone(&engine);
         let semaphore = Arc::clone(&semaphore);
         let multi = Arc::clone(&multi);
-        let project_name = base_project_name.clone();
+        let namespace = base_namespace.clone();
         let root = base_root.clone();
 
         let dep_futures: Vec<_> = task
@@ -87,7 +87,7 @@ pub async fn run_build(
 
             let reference = ImageReference {
                 registry: Some("localhost".into()),
-                namespace: Some(project_name),
+                namespace: Some(namespace),
                 name: name,
                 tag: Some(build_tag),
                 digest: None,

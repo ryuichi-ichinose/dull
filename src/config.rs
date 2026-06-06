@@ -31,7 +31,7 @@ pub struct ImageProfile {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ProjectConfig {
-    pub name: String,
+    pub namespace: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]

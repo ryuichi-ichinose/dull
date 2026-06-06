@@ -121,7 +121,7 @@ pub async fn run_push(
     let semaphore = Arc::new(Semaphore::new(concurrency));
 
     let mut handles = Vec::new();
-    let project_namespace = ctx.config.project.name.clone();
+    let base_namespace = ctx.config.project.namespace.clone();
 
     for name in target_names {
         let local_reference = match ctx.state.images.get(&name) {
@@ -144,7 +144,7 @@ pub async fn run_push(
 
         let dest_reference = ImageReference {
             registry: Some(registry_base.clone()),
-            namespace: Some(project_namespace.clone()),
+            namespace: Some(base_namespace.clone()),
             name: name.clone(),
             tag: Some(target_tag),
             digest: None,

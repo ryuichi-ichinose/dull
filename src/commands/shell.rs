@@ -5,9 +5,9 @@ use anyhow::Result;
 pub fn run_shell(engine: &BuildahEngine, ctx: ProjectContext) -> Result<()> {
     println!(
         "Entering dull shell for project: {}",
-        &ctx.config.project.name
+        &ctx.config.project.namespace
     );
 
     // Delegate process replacement to the engine. Will not return.
-    engine.shell(&ctx.config.project.name)
+    engine.shell(&ctx.config.project.namespace)
 }

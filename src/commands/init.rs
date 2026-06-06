@@ -19,7 +19,9 @@ pub fn run_init() -> Result<()> {
         .to_string();
 
     let conf = DullConfig {
-        project: ProjectConfig { name: dir_name },
+        project: ProjectConfig {
+            namespace: dir_name,
+        },
         registries: BTreeMap::new(),
         dependencies: Vec::new(),
         images: BTreeMap::new(),
