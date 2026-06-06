@@ -112,10 +112,16 @@ pub async fn run_lock(
                 }
             }
             if to_resolve.is_empty() {
-                bail!(
-                    "All dependencies are already locked.\n\
-                     Use 'dull lock --upgrade' to update all, or 'dull lock --upgrade <IMAGE>' to update a specific one."
-                );
+                if pruned_count > 0 {
+                    save_lock(&ctx)?;
+                    println!("Lock file updated: {:?}", ctx.paths.lock_file);
+                    return Ok(());
+                } else {
+                    bail!(
+                        "All dependencies are already locked.\n\
+                         Use 'dull lock --upgrade' to update all, or 'dull lock --upgrade <IMAGE>' to update a specific one."
+                    );
+                }
             }
         } else {
             for target in &args.images {
