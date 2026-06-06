@@ -4,6 +4,7 @@ use crate::engine::SkopeoEngine;
 use crate::image_reference::{ImageReference, parse_oci_reference};
 use anyhow::{Context, Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -67,7 +68,7 @@ pub async fn run_lock(
         }
         return Ok(());
     }
-    let mut parsed_deps = Vec::new();
+    let mut parsed_deps = BTreeMap::new();
     for dep_str in &ctx.config.dependencies {
         let mut reference = parse_oci_reference(dep_str)
             .with_context(|| format!("Failed to parse dependency: {}", dep_str))?;
@@ -84,62 +85,54 @@ pub async fn run_lock(
             reference.tag = Some("latest".to_string());
         }
 
-        parsed_deps.push((dep_str.clone(), reference));
+        parsed_deps.insert(dep_str.clone(), reference);
     }
 
     let mut to_resolve = Vec::new();
-    let mut final_locks = ctx.lock.images.clone();
 
-    if args.upgrade {
-        if args.images.is_empty() {
-            to_resolve = parsed_deps;
-            final_locks.clear();
-        } else {
-            for target in &args.images {
-                if let Some(pos) = parsed_deps.iter().position(|(s, _)| s == target) {
-                    to_resolve.push(parsed_deps[pos].clone());
-                    final_locks.remove(target);
-                } else {
-                    bail!("Dependency '{}' is not defined in dull.toml.", target);
-                }
-            }
-        }
+    let target_keys: Vec<&String> = if args.images.is_empty() {
+        parsed_deps.keys().collect()
     } else {
-        if args.images.is_empty() {
-            for (dep_str, reference) in parsed_deps {
-                if !ctx.lock.images.contains_key(&dep_str) {
-                    to_resolve.push((dep_str, reference));
-                }
-            }
-            if to_resolve.is_empty() {
-                if pruned_count > 0 {
-                    save_lock(&ctx)?;
-                    println!("Lock file updated: {:?}", ctx.paths.lock_file);
-                    return Ok(());
-                } else {
+        args.images.iter().collect()
+    };
+
+    for target in target_keys {
+        let reference = match parsed_deps.get(target) {
+            Some(r) => r.clone(),
+            None => bail!("Dependency '{}' is not defined in dull.toml.", target),
+        };
+
+        let is_locked = ctx.lock.images.contains_key(target);
+
+        if args.upgrade {
+            ctx.lock.images.remove(target);
+            to_resolve.push((target.clone(), reference));
+        } else {
+            if is_locked {
+                if !args.images.is_empty() {
                     bail!(
-                        "All dependencies are already locked.\n\
-                         Use 'dull lock --upgrade' to update all, or 'dull lock --upgrade <IMAGE>' to update a specific one."
+                        "Dependency '{}' is already locked.\n\
+                         To overwrite it with the latest digest, use 'dull lock --upgrade {}'",
+                        target,
+                        target
                     );
                 }
-            }
-        } else {
-            for target in &args.images {
-                if let Some(pos) = parsed_deps.iter().position(|(s, _)| s == target) {
-                    if ctx.lock.images.contains_key(target) {
-                        bail!(
-                            "Dependency '{}' is already locked.\n\
-                             To overwrite it with the latest digest, use 'dull lock --upgrade {}'",
-                            target,
-                            target
-                        );
-                    }
-                    to_resolve.push(parsed_deps[pos].clone());
-                } else {
-                    bail!("Dependency '{}' is not defined in dull.toml.", target);
-                }
+            } else {
+                to_resolve.push((target.clone(), reference));
             }
         }
+    }
+
+    if to_resolve.is_empty() {
+        if pruned_count > 0 {
+            save_lock(&ctx)?;
+            println!("Lock file updated: {:?}", ctx.paths.lock_file);
+            return Ok(());
+        }
+        bail!(
+            "All dependencies are already locked.\n\
+             Use 'dull lock --upgrade' to update all, or 'dull lock --upgrade <IMAGE>' to update a specific one."
+        );
     }
 
     println!("Locking {} dependencies...", to_resolve.len());
@@ -148,7 +141,7 @@ pub async fn run_lock(
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let multi = Arc::new(MultiProgress::new());
 
-    let mut handles = Vec::new();
+    let mut handles = Vec::with_capacity(to_resolve.len());
 
     for (reference_str, reference) in to_resolve {
         let semaphore_clone = Arc::clone(&semaphore);
@@ -172,14 +165,10 @@ pub async fn run_lock(
     for handle in handles {
         match handle.await {
             Ok(Ok((ref_str, locked_ref))) => {
-                final_locks.insert(ref_str, locked_ref);
+                ctx.lock.images.insert(ref_str, locked_ref);
             }
-            Ok(Err(e)) => {
-                error_messages.push(e.to_string());
-            }
-            Err(e) => {
-                error_messages.push(format!("Task panicked: {}", e));
-            }
+            Ok(Err(e)) => error_messages.push(e.to_string()),
+            Err(e) => error_messages.push(format!("Task panicked: {}", e)),
         }
     }
 
@@ -191,7 +180,6 @@ pub async fn run_lock(
         bail!("Locking completed with errors.");
     }
 
-    ctx.lock.images = final_locks;
     save_lock(&ctx)?;
 
     drop(multi);
