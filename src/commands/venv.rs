@@ -25,21 +25,13 @@ pub fn run_venv() -> Result<()> {
         return Ok(());
     }
 
-    let global_cache = "/var/lib/shared-container-cache";
-
     fs::create_dir_all(&paths.storage_dir)?;
     apply_selinux_label(&paths.storage_dir)?;
-
-    let mut additional_stores_line = String::new();
-    if Path::new(global_cache).exists() {
-        additional_stores_line = format!("additionalimagestores = [\"{}\"]", global_cache);
-    }
 
     let conf_content = format!(
         "[storage]\n\
          driver = \"overlay\"\n\
          graphroot = \"{}\"\n\
-         {}\n\
          \n\
          [storage.options]\n\
          pull_options = {{convert_images = \"true\", enable_partial_images = \"true\", use_hard_links = \"true\"}}\n\
@@ -48,7 +40,6 @@ pub fn run_venv() -> Result<()> {
          use_composefs = \"false\"\n\
          mountopt = \"nodev,metacopy=on\"\n",
         paths.storage_dir.display(),
-        additional_stores_line
     );
 
     write_atomic(&paths.storage_conf, &conf_content)?;
