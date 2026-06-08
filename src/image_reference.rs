@@ -10,7 +10,7 @@ pub struct ImageReference {
 }
 
 impl ImageReference {
-    pub fn to_digest_string(&self) -> String {
+    pub fn to_canonical_string(&self) -> String {
         let mut s = String::new();
         if let Some(ref reg) = self.registry {
             s.push_str(reg);

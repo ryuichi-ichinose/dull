@@ -72,7 +72,7 @@ impl SkopeoEngine {
     }
 
     pub async fn fetch(&self, reference: &ImageReference, insecure: bool) -> Result<String> {
-        let src_str = format!("docker://{}", reference.to_digest_string());
+        let src_str = format!("docker://{}", reference.to_canonical_string());
         let dest_str = format!("containers-storage:{}", reference.to_tag_string());
 
         let digest_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
