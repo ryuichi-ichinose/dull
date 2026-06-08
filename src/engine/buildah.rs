@@ -21,13 +21,6 @@ pub struct BuildOptions<'a> {
     pub progress_bar: Option<indicatif::ProgressBar>,
 }
 
-#[derive(Debug)]
-pub struct RegistryAuth<'a> {
-    pub username: Option<&'a str>,
-    pub password: Option<&'a str>,
-    pub extra_args: &'a [String],
-}
-
 #[derive(Deserialize, Debug)]
 struct BuildahImage {
     id: String,
@@ -88,31 +81,6 @@ impl BuildahEngine {
             });
         }
         cmd
-    }
-
-    pub async fn login(&self, registry_url: &str, auth: &RegistryAuth<'_>) -> Result<()> {
-        let mut cmd = self.command("login");
-        if let Some(u) = auth.username {
-            cmd.arg("-u").arg(u);
-        }
-        if let Some(p) = auth.password {
-            cmd.arg("-p").arg(p);
-        }
-
-        cmd.args(auth.extra_args).arg(registry_url);
-
-        let status = cmd
-            .kill_on_drop(true)
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status()
-            .await?;
-
-        if !status.success() {
-            bail!("Login failed.");
-        }
-        Ok(())
     }
 
     pub async fn build(
