@@ -43,8 +43,8 @@ impl SkopeoEngine {
         let digest_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
         let digest_path = digest_file.path().to_str().unwrap();
 
-        let src_str = format!("containers-storage:{}", source.to_full_string());
-        let dest_str = format!("docker://{}", destination.to_tag_string());
+        let src_str = source.storage_full_url();
+        let dest_str = destination.docker_tag_url();
 
         let mut cmd = self.command();
         cmd.kill_on_drop(true).arg("copy");
@@ -72,8 +72,8 @@ impl SkopeoEngine {
     }
 
     pub async fn fetch(&self, reference: &ImageReference, insecure: bool) -> Result<String> {
-        let src_str = format!("docker://{}", reference.to_canonical_string());
-        let dest_str = format!("containers-storage:{}", reference.to_tag_string());
+        let src_str = reference.docker_canonical_url();
+        let dest_str = reference.storage_tag_url();
 
         let digest_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
         let digest_path = digest_file.path().to_str().unwrap();
@@ -108,7 +108,7 @@ impl SkopeoEngine {
         reference: &ImageReference,
         insecure: bool,
     ) -> Result<Option<ImageReference>> {
-        let dest_str = format!("docker://{}", reference.to_tag_string());
+        let dest_str = reference.docker_tag_url();
         let mut cmd = self.command();
         cmd.arg("inspect").arg("--raw");
 

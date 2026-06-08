@@ -55,6 +55,22 @@ impl ImageReference {
         }
         s
     }
+
+    pub fn docker_tag_url(&self) -> String {
+        format!("docker://{}", self.to_tag_string())
+    }
+
+    pub fn docker_canonical_url(&self) -> String {
+        format!("docker://{}", self.to_canonical_string())
+    }
+
+    pub fn storage_tag_url(&self) -> String {
+        format!("containers-storage:{}", self.to_tag_string())
+    }
+
+    pub fn storage_full_url(&self) -> String {
+        format!("containers-storage:{}", self.to_full_string())
+    }
 }
 
 pub fn parse_oci_reference(s: &str) -> Option<ImageReference> {
