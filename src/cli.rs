@@ -15,7 +15,7 @@ pub enum Commands {
     Login(LoginArgs),
     Registry(RegistryArgs),
     Lock(LockArgs),
-    Fetch,
+    Fetch(FetchArgs),
     Build(BuildArgs),
     Push(PushArgs),
     Shell,
@@ -117,4 +117,10 @@ pub struct ImagesArgs {
     pub all: bool,
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Args)]
+pub struct FetchArgs {
+    #[arg(num_args = 0..)]
+    pub images: Vec<String>,
 }

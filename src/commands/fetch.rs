@@ -1,7 +1,8 @@
+use crate::cli::FetchArgs;
 use crate::config::ProjectContext;
 use crate::engine::SkopeoEngine;
 use crate::image_reference::ImageReference;
-use anyhow::Result;
+use anyhow::{Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,13 +39,37 @@ async fn fetch_single_image(
     }
 }
 
-pub async fn run_fetch(engine: Arc<SkopeoEngine>, ctx: ProjectContext) -> Result<()> {
+pub async fn run_fetch(
+    engine: Arc<SkopeoEngine>,
+    ctx: ProjectContext,
+    args: FetchArgs,
+) -> Result<()> {
     if ctx.lock.images.is_empty() {
         println!("No dependencies found in lock file. Run 'dull lock' first.");
         return Ok(());
     }
 
-    println!("Fetching {} dependencies...", ctx.lock.images.len());
+    let mut to_fetch = Vec::new();
+    if args.images.is_empty() {
+        for (name, reference) in ctx.lock.images.clone() {
+            to_fetch.push((name, reference));
+        }
+    } else {
+        for name in &args.images {
+            if let Some(reference) = ctx.lock.images.get(name) {
+                to_fetch.push((name.clone(), reference.clone()));
+            } else {
+                bail!("Image '{}' is not found in the lock file.", name);
+            }
+        }
+    }
+
+    if to_fetch.is_empty() {
+        println!("Nothing to fetch.");
+        return Ok(());
+    }
+
+    println!("Fetching {} dependencies...", to_fetch.len());
 
     let concurrency = std::thread::available_parallelism().map_or(4, |n| n.get());
     let semaphore = Arc::new(Semaphore::new(concurrency));
@@ -52,7 +77,7 @@ pub async fn run_fetch(engine: Arc<SkopeoEngine>, ctx: ProjectContext) -> Result
 
     let mut handles = Vec::new();
 
-    for (name, reference) in ctx.lock.images.clone() {
+    for (name, reference) in to_fetch {
         let semaphore_clone = Arc::clone(&semaphore);
         let engine_clone = Arc::clone(&engine);
         let multi_clone = Arc::clone(&multi);
@@ -71,11 +96,11 @@ pub async fn run_fetch(engine: Arc<SkopeoEngine>, ctx: ProjectContext) -> Result
     }
 
     if errors {
-        anyhow::bail!("Fetching completed with errors.");
+        bail!("Fetching completed with errors.");
     }
 
     drop(multi);
-    println!("All dependencies fetched.");
+    println!("All requested dependencies fetched.");
 
     Ok(())
 }

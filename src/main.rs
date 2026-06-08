@@ -43,7 +43,7 @@ async fn main() -> Result<()> {
                     commands::login::run_login(engine.as_ref(), ctx, args).await
                 }
                 Commands::Lock(args) => commands::lock::run_lock(skopeo_engine, ctx, args).await,
-                Commands::Fetch => commands::fetch::run_fetch(skopeo_engine, ctx).await,
+                Commands::Fetch(args) => commands::fetch::run_fetch(skopeo_engine, ctx, args).await,
                 Commands::Build(args) => commands::build::run_build(engine, ctx, args).await,
                 Commands::Push(args) => commands::push::run_push(skopeo_engine, ctx, args).await,
                 Commands::Shell => commands::shell::run_shell(engine.as_ref(), ctx),
