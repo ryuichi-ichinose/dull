@@ -29,11 +29,6 @@ pub struct ImageProfile {
     pub args: BTreeMap<String, String>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct ProjectConfig {
-    pub namespace: String,
-}
-
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct RegistryProfile {
     pub url: String,
@@ -41,7 +36,8 @@ pub struct RegistryProfile {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DullConfig {
-    pub project: ProjectConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
     #[serde(default)]
     pub registries: BTreeMap<String, RegistryProfile>,
     #[serde(default)]

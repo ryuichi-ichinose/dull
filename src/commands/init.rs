@@ -1,4 +1,4 @@
-use crate::config::{DullConfig, ProjectConfig, ProjectPaths, write_atomic};
+use crate::config::{DullConfig, ProjectPaths, write_atomic};
 use anyhow::Result;
 use std::collections::BTreeMap;
 use std::env;
@@ -19,9 +19,7 @@ pub fn run_init() -> Result<()> {
         .to_string();
 
     let conf = DullConfig {
-        project: ProjectConfig {
-            namespace: dir_name,
-        },
+        namespace: Some(dir_name),
         registries: BTreeMap::new(),
         dependencies: Vec::new(),
         images: BTreeMap::new(),

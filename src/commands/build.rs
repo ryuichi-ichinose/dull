@@ -42,7 +42,7 @@ pub async fn run_build(
     let multi = Arc::new(MultiProgress::new());
     let mut task_futures: HashMap<String, SharedTaskFuture> = HashMap::new();
 
-    let base_namespace = ctx.config.project.namespace.clone();
+    let base_namespace = ctx.config.namespace.clone();
     let base_root = ctx.paths.root.clone();
 
     for task in plan.tasks {
@@ -87,7 +87,7 @@ pub async fn run_build(
 
             let reference = ImageReference {
                 registry: Some("localhost".into()),
-                namespace: Some(namespace),
+                namespace: namespace,
                 name: name,
                 tag: Some(build_tag),
                 digest: None,
