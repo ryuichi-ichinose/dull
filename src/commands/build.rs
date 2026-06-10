@@ -85,6 +85,14 @@ pub async fn run_build(
             pb.set_message(format!("Building {}...", name));
             pb.enable_steady_tick(Duration::from_millis(100));
 
+            let (log_tx, mut log_rx) = tokio::sync::mpsc::channel::<String>(100);
+            let pb_clone = pb.clone();
+            tokio::spawn(async move {
+                while let Some(line) = log_rx.recv().await {
+                    pb_clone.set_message(line);
+                }
+            });
+
             let reference = ImageReference {
                 registry: Some("localhost".into()),
                 namespace: namespace,
@@ -97,10 +105,9 @@ pub async fn run_build(
                 dockerfile_path: &root.join(&profile.path),
                 context_dir: &root.join(&profile.context),
                 build_args: &profile.args,
-                progress_bar: Some(pb.clone()),
             };
 
-            match engine.build(&reference, opts).await {
+            match engine.build(&reference, opts, Some(log_tx)).await {
                 Ok(completed_ref) => {
                     pb.finish_with_message(format!("{} built", reference.name));
                     Ok(completed_ref)

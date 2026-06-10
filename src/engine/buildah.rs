@@ -12,13 +12,13 @@ use tempfile::NamedTempFile;
 use tokio::fs::{self as tokio_fs, File as TokioFile};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::Command as TokioCommand;
+use tokio::sync::mpsc;
 
 #[derive(Debug)]
 pub struct BuildOptions<'a> {
     pub dockerfile_path: &'a Path,
     pub context_dir: &'a Path,
     pub build_args: &'a std::collections::BTreeMap<String, String>,
-    pub progress_bar: Option<indicatif::ProgressBar>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -87,6 +87,7 @@ impl BuildahEngine {
         &self,
         reference: &ImageReference,
         opts: BuildOptions<'_>,
+        log_tx: Option<mpsc::Sender<String>>,
     ) -> Result<ImageReference> {
         let local_ref = reference.to_tag_string();
 
@@ -135,11 +136,13 @@ impl BuildahEngine {
             tokio::select! {
                 line = stdout_reader.next_line(), if !stdout_done => {
                     if let Ok(Some(line)) = line {
-
                         log_writer.write_all(line.as_bytes()).await?;
                         log_writer.write_all(b"\n").await?;
 
-                        if let Some(ref pb) = opts.progress_bar { pb.set_message(line.clone()); }
+                        if let Some(ref tx) = log_tx {
+                            let _ = tx.send(line.clone()).await;
+                        }
+
                         if error_buffer.len() == 20 { error_buffer.pop_front(); }
                         error_buffer.push_back(line);
                     } else { stdout_done = true; }
@@ -149,7 +152,10 @@ impl BuildahEngine {
                         log_writer.write_all(line.as_bytes()).await?;
                         log_writer.write_all(b"\n").await?;
 
-                        if let Some(ref pb) = opts.progress_bar { pb.set_message(line.clone()); }
+                        if let Some(ref tx) = log_tx {
+                            let _ = tx.send(line.clone()).await;
+                        }
+
                         if error_buffer.len() == 20 { error_buffer.pop_front(); }
                         error_buffer.push_back(line);
                     } else { stderr_done = true; }
