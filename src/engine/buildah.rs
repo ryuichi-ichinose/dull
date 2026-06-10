@@ -284,7 +284,7 @@ impl BuildahEngine {
         let status = self.command("rmi").arg("-a").arg("-f").status().await?;
 
         if !status.success() {
-            bail!("Clean failed while removing imges.");
+            bail!("Clean failed while removing images.");
         }
         Ok(())
     }
