@@ -135,12 +135,16 @@ pub async fn run_push(
             }
         };
 
-        let target_tag = args.tag.clone().unwrap_or_else(|| {
-            local_reference
-                .tag
-                .clone()
-                .unwrap_or_else(|| "latest".to_string())
-        });
+        let target_tag = match args.tag.clone().or_else(|| local_reference.tag.clone()) {
+            Some(tag) => tag,
+            None => {
+                let _ = multi.println(format!(
+                    "Warning: No tag specified or found in build state for {}. Push aborted.",
+                    name
+                ));
+                continue;
+            }
+        };
 
         let dest_reference = ImageReference {
             registry: Some(registry_base.clone()),
