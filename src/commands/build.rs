@@ -9,6 +9,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::Semaphore;
 
 type SharedTaskFuture = Shared<futures::future::BoxFuture<'static, Result<ImageReference, String>>>;
@@ -38,6 +39,15 @@ pub async fn run_build(
 
     println!("Starting build with max concurrency: {}", concurrency);
 
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string();
+
+    let session_log_dir = ctx.paths.dull_dir.join("logs").join(&timestamp);
+    std::fs::create_dir_all(&session_log_dir)?;
+
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let multi = Arc::new(MultiProgress::new());
     let mut task_futures: HashMap<String, SharedTaskFuture> = HashMap::new();
@@ -46,6 +56,8 @@ pub async fn run_build(
     let base_root = ctx.paths.root.clone();
 
     for task in plan.tasks {
+        let session_log_dir_clone = session_log_dir.clone();
+
         let name = task.name;
         let profile = task.profile;
         let build_tag = args.tag.clone().unwrap_or(profile.local_tag);
@@ -85,14 +97,6 @@ pub async fn run_build(
             pb.set_message(format!("Building {}...", name));
             pb.enable_steady_tick(Duration::from_millis(100));
 
-            let (log_tx, mut log_rx) = tokio::sync::mpsc::channel::<String>(100);
-            let pb_clone = pb.clone();
-            tokio::spawn(async move {
-                while let Some(line) = log_rx.recv().await {
-                    pb_clone.set_message(line);
-                }
-            });
-
             let reference = ImageReference {
                 registry: Some("localhost".into()),
                 namespace: namespace,
@@ -100,6 +104,29 @@ pub async fn run_build(
                 tag: Some(build_tag),
                 digest: None,
             };
+
+            let (log_tx, mut log_rx) = tokio::sync::mpsc::channel::<String>(100);
+            let pb_clone = pb.clone();
+
+            let safe_tag_name = reference
+                .to_tag_string()
+                .replace('/', "_")
+                .replace(':', "_");
+            let log_path = session_log_dir_clone.join(format!("{}.log", safe_tag_name));
+
+            tokio::spawn(async move {
+                if let Ok(mut log_file) = tokio::fs::File::create(&log_path).await {
+                    while let Some(line) = log_rx.recv().await {
+                        pb_clone.set_message(line.clone());
+                        let _ = log_file.write_all(format!("{}\n", line).as_bytes()).await;
+                    }
+                    let _ = log_file.sync_all().await;
+                } else {
+                    while let Some(line) = log_rx.recv().await {
+                        pb_clone.set_message(line);
+                    }
+                }
+            });
 
             let opts = BuildOptions {
                 dockerfile_path: &root.join(&profile.path),

@@ -117,13 +117,7 @@ impl BuildahEngine {
             .stderr(Stdio::piped())
             .spawn()?;
 
-        let log_dir = self.ctx.paths.dull_dir.join("logs");
-        tokio_fs::create_dir_all(&log_dir).await?;
-
-        let log_file = TokioFile::create(log_dir.join(format!("{}.log", reference.name))).await?;
-        let mut log_writer = BufWriter::new(log_file);
         let mut error_buffer = VecDeque::with_capacity(20);
-
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
 
@@ -136,34 +130,24 @@ impl BuildahEngine {
             tokio::select! {
                 line = stdout_reader.next_line(), if !stdout_done => {
                     if let Ok(Some(line)) = line {
-                        log_writer.write_all(line.as_bytes()).await?;
-                        log_writer.write_all(b"\n").await?;
-
                         if let Some(ref tx) = log_tx {
                             let _ = tx.send(line.clone()).await;
                         }
-
                         if error_buffer.len() == 20 { error_buffer.pop_front(); }
                         error_buffer.push_back(line);
                     } else { stdout_done = true; }
                 }
                 line = stderr_reader.next_line(), if !stderr_done => {
                     if let Ok(Some(line)) = line {
-                        log_writer.write_all(line.as_bytes()).await?;
-                        log_writer.write_all(b"\n").await?;
-
                         if let Some(ref tx) = log_tx {
                             let _ = tx.send(line.clone()).await;
                         }
-
                         if error_buffer.len() == 20 { error_buffer.pop_front(); }
                         error_buffer.push_back(line);
                     } else { stderr_done = true; }
                 }
             }
         }
-
-        log_writer.flush().await?;
 
         let status = child.wait().await?;
         if !status.success() {
