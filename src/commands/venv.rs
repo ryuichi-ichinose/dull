@@ -4,8 +4,16 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+fn is_selinux_enabled() -> bool {
+    Path::new("/sys/fs/selinux").exists()
+}
+
 fn apply_selinux_label(path: &Path) -> Result<()> {
-    let label = b"system_u:object_r:container_file_t:s0";
+    if !is_selinux_enabled() {
+        return Ok(());
+    }
+
+    let label = b"system_u:object_r:container_var_lib_t:s0";
     if let Err(e) = xattr::set(path, "security.selinux", label) {
         // Ignore ENOTSUP or other SELinux-related issues if not supported
         if e.raw_os_error() == Some(95) || e.raw_os_error() == Some(61) {
@@ -27,6 +35,20 @@ pub fn run_venv() -> Result<()> {
 
     fs::create_dir_all(&paths.storage_dir)?;
     apply_selinux_label(&paths.storage_dir)?;
+
+    if is_selinux_enabled() {
+        let storage_path = paths.storage_dir.display();
+        println!("WARNING: The SELinux label applied to the storage directory is temporary.");
+        println!(
+            "To ensure it survives a filesystem relabel (restorecon), register it permanently:"
+        );
+        println!(
+            "  sudo semanage fcontext -a -t container_var_lib_t '{}(/.*)?'",
+            storage_path
+        );
+        println!("  sudo restorecon -R -v {}", storage_path);
+        println!();
+    }
 
     let conf_content = format!(
         "[storage]\n\
