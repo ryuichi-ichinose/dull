@@ -92,6 +92,8 @@ pub struct LockArgs {
     pub upgrade: bool,
     #[arg(num_args = 0..)]
     pub images: Vec<String>,
+    #[arg(long)]
+    pub insecure: bool,
 }
 
 #[derive(Args)]
@@ -123,4 +125,6 @@ pub struct ImagesArgs {
 pub struct FetchArgs {
     #[arg(num_args = 0..)]
     pub images: Vec<String>,
+    #[arg(long)]
+    pub insecure: bool,
 }

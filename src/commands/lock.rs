@@ -15,6 +15,7 @@ async fn lock_single_image(
     semaphore: Arc<Semaphore>,
     reference_str: String,
     reference: ImageReference,
+    is_insecure: bool,
 ) -> Result<(String, ImageReference)> {
     let _permit = semaphore.acquire().await.map_err(|e| anyhow::anyhow!(e))?;
 
@@ -27,7 +28,7 @@ async fn lock_single_image(
     pb.set_message(format!("Locking {}...", reference.to_tag_string()));
     pb.enable_steady_tick(Duration::from_millis(100));
 
-    match engine.inspect_remote(&reference, false).await {
+    match engine.inspect_remote(&reference, is_insecure).await {
         Ok(Some(inspected)) => {
             pb.finish_with_message(format!("{} locked", reference.to_tag_string()));
             Ok((reference_str, inspected))
@@ -151,6 +152,7 @@ pub async fn run_lock(
         let semaphore_clone = Arc::clone(&semaphore);
         let engine_clone = Arc::clone(&engine);
         let multi_clone = Arc::clone(&multi);
+        let is_insecure = args.insecure;
 
         handles.push(tokio::spawn(async move {
             lock_single_image(
@@ -159,6 +161,7 @@ pub async fn run_lock(
                 semaphore_clone,
                 reference_str,
                 reference,
+                is_insecure,
             )
             .await
         }));

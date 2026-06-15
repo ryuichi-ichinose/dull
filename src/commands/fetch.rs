@@ -3,6 +3,7 @@ use crate::config::ProjectContext;
 use crate::engine::SkopeoEngine;
 use crate::image_reference::ImageReference;
 use anyhow::{Result, bail};
+use futures::future::InspectErr;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,6 +15,7 @@ async fn fetch_single_image(
     semaphore: Arc<Semaphore>,
     name: String,
     reference: ImageReference,
+    is_insecure: bool,
 ) -> Result<()> {
     let _permit = semaphore.acquire().await.map_err(|e| anyhow::anyhow!(e))?;
 
@@ -26,7 +28,7 @@ async fn fetch_single_image(
     pb.set_message(format!("Fetching {}...", name));
     pb.enable_steady_tick(Duration::from_millis(100));
 
-    match engine.fetch(&reference, false).await {
+    match engine.fetch(&reference, is_insecure).await {
         Ok(_) => {
             pb.finish_with_message(format!("{} fetched", name));
             Ok(())
@@ -74,16 +76,24 @@ pub async fn run_fetch(
     let concurrency = std::thread::available_parallelism().map_or(4, |n| n.get());
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let multi = Arc::new(MultiProgress::new());
-
     let mut handles = Vec::new();
 
     for (name, reference) in to_fetch {
         let semaphore_clone = Arc::clone(&semaphore);
         let engine_clone = Arc::clone(&engine);
         let multi_clone = Arc::clone(&multi);
+        let is_insecure = args.insecure;
 
         handles.push(tokio::spawn(async move {
-            fetch_single_image(engine_clone, multi_clone, semaphore_clone, name, reference).await
+            fetch_single_image(
+                engine_clone,
+                multi_clone,
+                semaphore_clone,
+                name,
+                reference,
+                is_insecure,
+            )
+            .await
         }));
     }
 
