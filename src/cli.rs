@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "dull", version, about = "Container build orchestrator.")]
@@ -22,6 +23,7 @@ pub enum Commands {
     Clean,
     Gc(GcArgs),
     Images(ImagesArgs),
+    Export(ExportArgs),
 }
 
 #[derive(Args)]
@@ -127,4 +129,13 @@ pub struct FetchArgs {
     pub images: Vec<String>,
     #[arg(long)]
     pub insecure: bool,
+}
+
+#[derive(clap::Args, Debug)]
+pub struct ExportArgs {
+    #[arg(short, long)]
+    pub all: bool,
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
+    pub images: Vec<String>,
 }

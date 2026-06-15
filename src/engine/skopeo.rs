@@ -4,6 +4,7 @@ use crate::image_reference::ImageReference;
 use anyhow::{Context, Result, bail};
 use std::fs;
 use std::io::Write;
+use std::path::Path;
 use std::process::Stdio;
 use tempfile::NamedTempFile;
 use tokio::process::Command as TokioCommand;
@@ -135,6 +136,32 @@ impl SkopeoEngine {
         }
 
         Ok(fs::read_to_string(digest_path)?.trim().to_string())
+    }
+
+    pub async fn export_to_oci(
+        &self,
+        local_reference: &ImageReference,
+        dest_dir: &Path,
+    ) -> Result<()> {
+        let src = local_reference.storage_tag_url();
+        let dest = format!("oci:{}", dest_dir.display());
+
+        let mut cmd = self.command();
+        cmd.kill_on_drop(true).arg("copy").arg(&src).arg(&dest);
+
+        let output = cmd
+            .output()
+            .await
+            .context("Failed to execute skopeo copy for export")?;
+
+        if !output.status.success() {
+            anyhow::bail!(
+                "Failed to export to OCI format:\n{}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+
+        Ok(())
     }
 
     pub async fn inspect_remote(

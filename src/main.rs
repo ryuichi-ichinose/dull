@@ -46,6 +46,9 @@ async fn main() -> Result<()> {
                 Commands::Fetch(args) => commands::fetch::run_fetch(skopeo_engine, ctx, args).await,
                 Commands::Build(args) => commands::build::run_build(engine, ctx, args).await,
                 Commands::Push(args) => commands::push::run_push(skopeo_engine, ctx, args).await,
+                Commands::Export(args) => {
+                    commands::export::run_export(skopeo_engine, ctx, args).await
+                }
                 Commands::Shell => commands::shell::run_shell(engine.as_ref(), ctx),
                 Commands::Clean => commands::clean::run_clean(engine.as_ref(), ctx).await,
                 Commands::Images(args) => {
