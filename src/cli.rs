@@ -86,6 +86,12 @@ pub struct PushArgs {
     pub insecure: bool,
     #[arg(short = 'f', long)]
     pub force: bool,
+    #[arg(long)]
+    pub sign_by: Option<String>,
+    #[arg(long, conflicts_with = "sign_by")]
+    pub sign_by_sigstore_private_key: Option<PathBuf>,
+    #[arg(long)]
+    pub sign_passphrase_file: Option<PathBuf>,
 }
 
 #[derive(Args)]

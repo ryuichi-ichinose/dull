@@ -4,6 +4,7 @@ use crate::engine::SkopeoEngine;
 use crate::image_reference::ImageReference;
 use anyhow::{Context, Result};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -17,6 +18,9 @@ async fn push_single_image(
     name: String,
     is_insecure: bool,
     is_force: bool,
+    sign_by: Option<&str>,
+    sign_by_sigstore_private_key: Option<&Path>,
+    sign_passphrase_file: Option<&Path>,
 ) -> Result<String> {
     let _permit = semaphore.acquire().await.expect("Semaphore closed");
 
@@ -62,7 +66,14 @@ async fn push_single_image(
     pb.set_message(format!("Pushing {}...", name));
 
     match engine
-        .push(&local_reference, &dest_reference, is_insecure)
+        .push(
+            &local_reference,
+            &dest_reference,
+            is_insecure,
+            sign_by,
+            sign_by_sigstore_private_key,
+            sign_passphrase_file,
+        )
         .await
     {
         Ok(_) => {
@@ -111,9 +122,19 @@ pub async fn run_push(
         registry_base
     );
 
-    let concurrency = args
-        .jobs
-        .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, |n| n.get()));
+    let requires_interactive_prompt = (args.sign_by.is_some()
+        || args.sign_by_sigstore_private_key.is_some())
+        && args.sign_passphrase_file.is_none();
+
+    let concurrency = if requires_interactive_prompt {
+        println!(
+            "Interactive signature requested: Falling back to sequential execution to prevent TTY conflicts."
+        );
+        1
+    } else {
+        args.jobs
+            .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, |n| n.get()))
+    };
 
     println!("Starting push with max concurrency: {}", concurrency);
 
@@ -160,6 +181,9 @@ pub async fn run_push(
         let name_clone = name.clone();
         let is_insecure = args.insecure;
         let is_force = args.force;
+        let sign_by_clone = args.sign_by.clone();
+        let sign_by_sigstore_private_key_clone = args.sign_by_sigstore_private_key.clone();
+        let sign_passphrase_file_clone = args.sign_passphrase_file.clone();
 
         handles.push(tokio::spawn(async move {
             push_single_image(
@@ -171,6 +195,9 @@ pub async fn run_push(
                 name_clone,
                 is_insecure,
                 is_force,
+                sign_by_clone.as_deref(),
+                sign_by_sigstore_private_key_clone.as_deref(),
+                sign_passphrase_file_clone.as_deref(),
             )
             .await
         }));

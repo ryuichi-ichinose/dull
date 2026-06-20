@@ -74,6 +74,9 @@ impl SkopeoEngine {
         source: &ImageReference,
         destination: &ImageReference,
         insecure: bool,
+        sign_by: Option<&str>,
+        sign_by_sigstore_private_key: Option<&Path>,
+        sign_passphrase_file: Option<&Path>,
     ) -> Result<String> {
         let digest_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
         let digest_path = digest_file.path().to_str().unwrap();
@@ -86,6 +89,15 @@ impl SkopeoEngine {
 
         if insecure {
             cmd.arg("--dest-tls-verify=false");
+        }
+        if let Some(key_id) = sign_by {
+            cmd.arg("--sign-by").arg(key_id);
+        }
+        if let Some(key_path) = sign_by_sigstore_private_key {
+            cmd.arg("--sign-by-sigstore-private-key").arg(key_path);
+        }
+        if let Some(pass_file) = sign_passphrase_file {
+            cmd.arg("--sign-passphrase-file").arg(pass_file);
         }
 
         let output = cmd
