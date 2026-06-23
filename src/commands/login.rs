@@ -14,8 +14,7 @@ pub async fn run_login(engine: &SkopeoEngine, ctx: ProjectContext, args: LoginAr
     let auth = RegistryAuth {
         username: args.username.as_deref(),
         password: args.password.as_deref(),
-        extra_args: &args.extra_args,
     };
 
-    engine.login(registry_url, &auth).await
+    engine.login(registry_url, &auth, args.insecure).await
 }

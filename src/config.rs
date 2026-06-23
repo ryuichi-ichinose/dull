@@ -67,6 +67,7 @@ pub struct ProjectPaths {
     pub storage_dir: PathBuf,
     pub storage_conf: PathBuf,
     pub tmp_dir: PathBuf,
+    pub auth_file: PathBuf,
 }
 
 impl ProjectPaths {
@@ -81,6 +82,7 @@ impl ProjectPaths {
             storage_dir: containers_dir.join("storage"),
             storage_conf: containers_dir.join("storage.conf"),
             tmp_dir: containers_dir.join("tmp"),
+            auth_file: dull_dir.join("auth.json"),
             containers_dir,
             dull_dir,
             root,

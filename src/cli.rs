@@ -41,8 +41,8 @@ pub struct LoginArgs {
     pub username: Option<String>,
     #[arg(short, long)]
     pub password: Option<String>,
-    #[arg(last = true)]
-    pub extra_args: Vec<String>,
+    #[arg(long)]
+    pub insecure: bool,
 }
 
 #[derive(Args)]

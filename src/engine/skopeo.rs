@@ -13,7 +13,6 @@ use tokio::process::Command as TokioCommand;
 pub struct RegistryAuth<'a> {
     pub username: Option<&'a str>,
     pub password: Option<&'a str>,
-    pub extra_args: &'a [String],
 }
 
 pub struct SkopeoEngine {
@@ -33,7 +32,8 @@ impl SkopeoEngine {
     fn command(&self) -> TokioCommand {
         let mut cmd = TokioCommand::new("skopeo");
         cmd.env("CONTAINERS_STORAGE_CONF", &self.ctx.paths.storage_conf)
-            .env("TMPDIR", &self.ctx.paths.tmp_dir);
+            .env("TMPDIR", &self.ctx.paths.tmp_dir)
+            .env("REGISTRY_AUTH_FILE", &self.ctx.paths.auth_file);
         unsafe {
             cmd.pre_exec(|| {
                 libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
@@ -42,7 +42,12 @@ impl SkopeoEngine {
         }
         cmd
     }
-    pub async fn login(&self, registry_url: &str, auth: &RegistryAuth<'_>) -> Result<()> {
+    pub async fn login(
+        &self,
+        registry_url: &str,
+        auth: &RegistryAuth<'_>,
+        insecure: bool,
+    ) -> Result<()> {
         let mut cmd = self.command();
         cmd.arg("login");
 
@@ -52,8 +57,10 @@ impl SkopeoEngine {
         if let Some(p) = auth.password {
             cmd.arg("-p").arg(p);
         }
-
-        cmd.args(auth.extra_args).arg(registry_url);
+        if insecure {
+            cmd.arg("--tls-verify=false");
+        }
+        cmd.arg(registry_url);
 
         let status = cmd
             .kill_on_drop(true)
