@@ -1,4 +1,5 @@
 use crate::config::ProjectContext;
+use crate::engine::ProcessGroupGuard;
 use crate::engine::version::{MIN_SKOPEO_VERSION, require_tool_version};
 use crate::image_reference::ImageReference;
 use anyhow::{Context, Result, bail};
@@ -37,11 +38,15 @@ impl SkopeoEngine {
         unsafe {
             cmd.pre_exec(|| {
                 libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                if libc::setpgid(0, 0) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
                 Ok(())
             });
         }
         cmd
     }
+
     pub async fn login(
         &self,
         registry_url: &str,
@@ -62,13 +67,15 @@ impl SkopeoEngine {
         }
         cmd.arg(registry_url);
 
-        let status = cmd
+        let mut child = cmd
             .kill_on_drop(true)
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
-            .status()
-            .await?;
+            .spawn()?;
+
+        let _guard = ProcessGroupGuard::new(&child);
+        let status = child.wait().await?;
 
         if !status.success() {
             bail!("Login failed.");
@@ -107,10 +114,13 @@ impl SkopeoEngine {
             cmd.arg("--sign-passphrase-file").arg(pass_file);
         }
 
-        let output = cmd
-            .args(["--digestfile", digest_path, &src_str, &dest_str])
-            .output()
-            .await?;
+        cmd.args(["--digestfile", digest_path, &src_str, &dest_str]);
+
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let child = cmd.spawn()?;
+
+        let _guard = ProcessGroupGuard::new(&child);
+        let output = child.wait_with_output().await?;
 
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -139,10 +149,13 @@ impl SkopeoEngine {
             cmd.arg("--src-tls-verify=false");
         }
 
-        let output = cmd
-            .args(["--digestfile", digest_path, &src_str, &dest_str])
-            .output()
-            .await?;
+        cmd.args(["--digestfile", digest_path, &src_str, &dest_str]);
+
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let child = cmd.spawn()?;
+
+        let _guard = ProcessGroupGuard::new(&child);
+        let output = child.wait_with_output().await?;
 
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -168,8 +181,12 @@ impl SkopeoEngine {
         let mut cmd = self.command();
         cmd.kill_on_drop(true).arg("copy").arg(&src).arg(&dest);
 
-        let output = cmd
-            .output()
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let child = cmd.spawn()?;
+
+        let _guard = ProcessGroupGuard::new(&child);
+        let output = child
+            .wait_with_output()
             .await
             .context("Failed to execute skopeo copy for export")?;
 
@@ -196,7 +213,13 @@ impl SkopeoEngine {
             cmd.arg("--tls-verify=false");
         }
 
-        let output = cmd.arg(&dest_str).output().await?;
+        cmd.arg(&dest_str);
+
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let child = cmd.spawn()?;
+
+        let _guard = ProcessGroupGuard::new(&child);
+        let output = child.wait_with_output().await?;
 
         if output.status.success() {
             let mut temp_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
@@ -204,11 +227,13 @@ impl SkopeoEngine {
             let temp_path = temp_file.path().to_str().unwrap();
 
             let mut digest_cmd = self.command();
-            let digest_output = digest_cmd
-                .arg("manifest-digest")
-                .arg(temp_path)
-                .output()
-                .await?;
+            digest_cmd.arg("manifest-digest").arg(temp_path);
+
+            digest_cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+            let digest_child = digest_cmd.spawn()?;
+
+            let _digest_guard = ProcessGroupGuard::new(&digest_child);
+            let digest_output = digest_child.wait_with_output().await?;
 
             if !digest_output.status.success() {
                 let err_msg = String::from_utf8_lossy(&digest_output.stderr);

@@ -1,4 +1,5 @@
 use crate::config::ProjectContext;
+use crate::engine::ProcessGroupGuard;
 use crate::engine::version::{MIN_BUILDAH_VERSION, require_tool_version};
 use crate::image_reference::ImageReference;
 use anyhow::{Context, Result, bail};
@@ -62,6 +63,9 @@ impl BuildahEngine {
         unsafe {
             cmd.pre_exec(|| {
                 libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                if libc::setpgid(0, 0) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
                 Ok(())
             });
         }
@@ -116,6 +120,8 @@ impl BuildahEngine {
             .stderr(Stdio::piped())
             .spawn()?;
 
+        let _guard = ProcessGroupGuard::new(&child);
+
         let mut error_buffer = VecDeque::with_capacity(20);
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
@@ -159,11 +165,14 @@ impl BuildahEngine {
 
         let image_id = fs::read_to_string(iid_path)?.trim().to_string();
 
-        let digest_output = self
-            .command("images")
-            .args(["--json", &image_id])
-            .output()
-            .await?;
+        let mut digest_cmd = self.command("images");
+        digest_cmd.args(["--json", &image_id]);
+
+        digest_cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let digest_child = digest_cmd.spawn()?;
+
+        let _digest_guard = ProcessGroupGuard::new(&digest_child);
+        let digest_output = digest_child.wait_with_output().await?;
 
         if !digest_output.status.success() {
             bail!(
@@ -196,7 +205,14 @@ impl BuildahEngine {
         active_hashes: &HashSet<String>,
         active_refs: &HashSet<String>,
     ) -> Result<GcReport> {
-        let output = self.command("images").arg("--json").output().await?;
+        let mut cmd = self.command("images");
+        cmd.arg("--json");
+
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let child = cmd.spawn()?;
+
+        let _guard = ProcessGroupGuard::new(&child);
+        let output = child.wait_with_output().await?;
 
         if !output.status.success() {
             bail!(
@@ -246,14 +262,28 @@ impl BuildahEngine {
         if !garbage_tags.is_empty() {
             let mut args = vec!["rmi"];
             args.extend(garbage_tags.iter().map(|s| s.as_str()));
-            self.command("").args(&args).status().await?;
+            let mut cmd = self.command("");
+            cmd.args(&args);
+
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+            let mut child = cmd.spawn()?;
+
+            let _guard = ProcessGroupGuard::new(&child);
+            child.wait().await?;
         }
 
         // Phase 2: Remove IDs
         if !garbage_ids.is_empty() {
             let mut args = vec!["rmi", "-f"];
             args.extend(garbage_ids.iter().map(|s| s.as_str()));
-            self.command("").args(&args).status().await?;
+            let mut cmd = self.command("");
+            cmd.args(&args);
+
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+            let mut child = cmd.spawn()?;
+
+            let _guard = ProcessGroupGuard::new(&child);
+            child.wait().await?;
         }
 
         Ok(GcReport {
@@ -264,7 +294,14 @@ impl BuildahEngine {
 
     /// Physically obliterates all images in the isolated container storage
     pub async fn clean(&self) -> Result<()> {
-        let status = self.command("rmi").arg("-a").arg("-f").status().await?;
+        let mut cmd = self.command("rmi");
+        cmd.arg("-a").arg("-f");
+
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        let mut child = cmd.spawn()?;
+
+        let _guard = ProcessGroupGuard::new(&child);
+        let status = child.wait().await?;
 
         if !status.success() {
             bail!("Clean failed while removing images.");
@@ -277,8 +314,7 @@ impl BuildahEngine {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
         let mut cmd = self.std_command(&shell);
         cmd.env("DULL_NAMESPACE", namespace);
-
-        let err = cmd.exec(); // Never returns if successful
+        let err = cmd.exec();
         bail!("Failed to exec shell: {}", err);
     }
 }
