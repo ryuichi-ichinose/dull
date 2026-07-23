@@ -252,16 +252,8 @@ impl SkopeoEngine {
 
             Ok(Some(remote_ref))
         } else {
-            let err = String::from_utf8_lossy(&output.stderr).to_lowercase();
-            if err.contains("manifest unknown")
-                || err.contains("not found")
-                || err.contains("404")
-                || err.contains("no such manifest")
-            {
-                Ok(None)
-            } else {
-                bail!("Failed to inspect remote registry:\n{}", err.trim());
-            }
+            let err = String::from_utf8_lossy(&output.stderr);
+            bail!("Failed to inspect remote registry:\n{}", err.trim());
         }
     }
 }

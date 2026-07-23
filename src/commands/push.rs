@@ -17,7 +17,6 @@ async fn push_single_image(
     dest_reference: ImageReference,
     name: String,
     is_insecure: bool,
-    is_force: bool,
     sign_by: Option<&str>,
     sign_by_sigstore_private_key: Option<&Path>,
     sign_passphrase_file: Option<&Path>,
@@ -31,39 +30,8 @@ async fn push_single_image(
             .unwrap(),
     );
 
-    pb.set_message(format!(
-        "Checking remote {}...",
-        dest_reference.to_tag_string()
-    ));
-    pb.enable_steady_tick(Duration::from_millis(100));
-
-    match engine.inspect_remote(&dest_reference, is_insecure).await {
-        Ok(Some(remote_ref)) => {
-            if !is_force {
-                let remote_tag = remote_ref.to_tag_string();
-                let err_msg = format!(
-                    "{} already exists.\nUse --force (-f) to overwrite it.",
-                    remote_tag
-                );
-                let _ = multi.println(format!("Conflict for {}:\n{}", name, err_msg));
-                pb.abandon_with_message(format!("{} blocked", name));
-                return Err(anyhow::anyhow!("Conflict: Tag already exists"));
-            } else {
-                let _ = multi.println(format!(
-                    "Warning: Force overwriting {}...",
-                    remote_ref.to_tag_string()
-                ));
-            }
-        }
-        Ok(None) => {}
-        Err(e) => {
-            let _ = multi.println(format!("Error checking {}:\n{}", name, e));
-            pb.abandon_with_message(format!("{} check failed", name));
-            return Err(e);
-        }
-    }
-
     pb.set_message(format!("Pushing {}...", name));
+    pb.enable_steady_tick(Duration::from_millis(100));
 
     match engine
         .push(
@@ -180,7 +148,6 @@ pub async fn run_push(
         let semaphore_clone = Arc::clone(&semaphore);
         let name_clone = name.clone();
         let is_insecure = args.insecure;
-        let is_force = args.force;
         let sign_by_clone = args.sign_by.clone();
         let sign_by_sigstore_private_key_clone = args.sign_by_sigstore_private_key.clone();
         let sign_passphrase_file_clone = args.sign_passphrase_file.clone();
@@ -194,7 +161,6 @@ pub async fn run_push(
                 dest_reference,
                 name_clone,
                 is_insecure,
-                is_force,
                 sign_by_clone.as_deref(),
                 sign_by_sigstore_private_key_clone.as_deref(),
                 sign_passphrase_file_clone.as_deref(),
