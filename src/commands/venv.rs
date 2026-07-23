@@ -1,7 +1,8 @@
 use crate::config::{ProjectPaths, write_atomic};
 use anyhow::Result;
 use std::env;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::Path;
 
 fn is_selinux_enabled() -> bool {
@@ -71,8 +72,30 @@ pub fn run_venv() -> Result<()> {
     let gitignore_path = paths.dull_dir.join(".gitignore");
     fs::write(&gitignore_path, "*\n")?;
 
-    let dockerignore_path = paths.dull_dir.join(".dockerignore");
-    fs::write(&dockerignore_path, "*\n")?;
+    let dockerignore_path = paths.root.join(".dockerignore");
+    let mut needs_dull_ignore = true;
+    let mut needs_leading_newline = false;
 
+    if dockerignore_path.exists() {
+        let content = fs::read_to_string(&dockerignore_path)?;
+        if content.lines().any(|line| line.trim() == ".dull") {
+            needs_dull_ignore = false;
+        } else if !content.is_empty() && !content.ends_with('\n') {
+            needs_leading_newline = true;
+        }
+    }
+
+    if needs_dull_ignore {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&dockerignore_path)?;
+
+        if needs_leading_newline {
+            writeln!(file)?;
+        }
+
+        write!(file, ".dull\n")?;
+    }
     Ok(())
 }
