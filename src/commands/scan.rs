@@ -9,7 +9,7 @@ fn is_valid_image_name(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    // OCI repository name spec: [a-z0-9]+([._-][a-z0-9]+)*
+    // OCI repository name spec: [a-z0-9]+([._-/][a-z0-9]+)*
     let mut chars = name.chars();
 
     // First char must be alphanumeric lowercase
@@ -24,7 +24,7 @@ fn is_valid_image_name(name: &str) -> bool {
     for c in chars {
         if c.is_ascii_lowercase() || c.is_ascii_digit() {
             last_was_sep = false;
-        } else if c == '.' || c == '_' || c == '-' {
+        } else if c == '.' || c == '_' || c == '-' || c == '/' {
             if last_was_sep {
                 return false; // consecutive separators not allowed
             }
@@ -53,10 +53,14 @@ pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
     override_builder.add("**/Containerfile")?;
     override_builder.add("**/*.Dockerfile")?;
     override_builder.add("**/*.Containerfile")?;
+    override_builder.add("**/Dockerfile.*")?;
+    override_builder.add("**/Containerfile.*")?;
     override_builder.add("Dockerfile")?;
     override_builder.add("Containerfile")?;
     override_builder.add("*.Dockerfile")?;
     override_builder.add("*.Containerfile")?;
+    override_builder.add("Dockerfile.*")?;
+    override_builder.add("Containerfile.*")?;
     let overrides = override_builder.build()?;
 
     let mut builder = WalkBuilder::new(ctx.paths.root.join(&target_dirs[0]));
@@ -75,12 +79,17 @@ pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
         let path = entry.path();
         let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-        let file_prefix = if fname == "Dockerfile" || fname == "Containerfile" {
+        // Extract prefix or suffix from the filename
+        let file_ext = if fname == "Dockerfile" || fname == "Containerfile" {
             ""
         } else if let Some(prefix) = fname.strip_suffix(".Dockerfile") {
             prefix
         } else if let Some(prefix) = fname.strip_suffix(".Containerfile") {
             prefix
+        } else if let Some(suffix) = fname.strip_prefix("Dockerfile.") {
+            suffix
+        } else if let Some(suffix) = fname.strip_prefix("Containerfile.") {
+            suffix
         } else {
             continue;
         };
@@ -98,11 +107,13 @@ pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
         let mut base_name = if context_path.is_empty() {
             "root".to_string()
         } else {
-            context_path.replace(std::path::MAIN_SEPARATOR, "-")
+            // Replace path separators with '/' instead of '-'
+            context_path.replace(std::path::MAIN_SEPARATOR, "/")
         };
 
-        if !file_prefix.is_empty() {
-            base_name = format!("{}-{}", base_name, file_prefix);
+        if !file_ext.is_empty() {
+            // Always append the extracted string to the end
+            base_name = format!("{}-{}", base_name, file_ext);
         }
 
         let name = base_name.to_lowercase();
@@ -110,7 +121,7 @@ pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
         if !is_valid_image_name(&name) {
             bail!(
                 "Invalid image name '{}' derived from path '{}'. \
-                 Image names must be OCI compliant (lowercase alphanumeric, dots, underscores, and dashes).",
+                 Image names must be OCI compliant (lowercase alphanumeric, dots, underscores, dashes, and slashes).",
                 name,
                 rel_path
             );
