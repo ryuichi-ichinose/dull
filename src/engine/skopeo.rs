@@ -1,6 +1,5 @@
 use crate::config::ProjectContext;
 use crate::engine::ProcessGroupGuard;
-use crate::engine::version::{MIN_SKOPEO_VERSION, require_tool_version};
 use crate::image_reference::ImageReference;
 use anyhow::{Context, Result, bail};
 use std::fs;
@@ -22,8 +21,13 @@ pub struct SkopeoEngine {
 
 impl SkopeoEngine {
     pub fn new(ctx: ProjectContext) -> Result<Self> {
-        require_tool_version("skopeo", MIN_SKOPEO_VERSION)?;
-
+        if std::process::Command::new("skopeo")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            bail!("'skopeo' command not found. Install it first.");
+        }
         if !ctx.paths.storage_conf.exists() {
             bail!("Storage not configured. Run 'dull init' and 'dull venv' first.");
         }

@@ -1,6 +1,5 @@
 use crate::config::ProjectContext;
 use crate::engine::ProcessGroupGuard;
-use crate::engine::version::{MIN_BUILDAH_VERSION, require_tool_version};
 use crate::image_reference::ImageReference;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -41,8 +40,13 @@ pub struct BuildahEngine {
 
 impl BuildahEngine {
     pub fn new(ctx: ProjectContext) -> Result<Self> {
-        require_tool_version("buildah", MIN_BUILDAH_VERSION)?;
-
+        if std::process::Command::new("buildah")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            bail!("'buildah' command not found. Install it first.");
+        }
         if !ctx.paths.storage_conf.exists() {
             bail!("Storage not configured. Run 'dull venv' first.");
         }
