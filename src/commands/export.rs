@@ -2,7 +2,7 @@ use crate::cli::ExportArgs;
 use crate::config::ProjectContext;
 use crate::engine::SkopeoEngine;
 use crate::image_reference::ImageReference;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -117,13 +117,29 @@ pub async fn run_export(
     }
 
     let mut exported_count = 0;
+    let mut failed = false;
+
     for handle in handles {
-        if let Ok(Ok(_)) = handle.await {
-            exported_count += 1;
+        match handle.await {
+            Ok(Ok(_)) => {
+                exported_count += 1;
+            }
+            Ok(Err(_)) => {
+                // Skopeo execution failed
+                failed = true;
+            }
+            Err(_) => {
+                // Tokio task panicked or was cancelled
+                failed = true;
+            }
         }
     }
 
     drop(multi);
+
+    if failed {
+        bail!("Failed to export some images. Check the logs above for details.");
+    }
 
     println!(
         "{} images were successfully exported in OCI format.",
