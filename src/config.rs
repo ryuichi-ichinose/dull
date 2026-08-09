@@ -36,8 +36,6 @@ pub struct RegistryProfile {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DullConfig {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub namespace: Option<String>,
     #[serde(default)]
     pub registries: BTreeMap<String, RegistryProfile>,
     #[serde(default)]

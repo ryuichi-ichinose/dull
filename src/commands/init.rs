@@ -12,14 +12,7 @@ pub fn run_init() -> Result<()> {
         return Ok(());
     }
 
-    let dir_name = root
-        .file_name()
-        .and_then(|os_str| os_str.to_str())
-        .unwrap_or("default-project")
-        .to_string();
-
     let conf = DullConfig {
-        namespace: Some(dir_name),
         registries: BTreeMap::new(),
         dependencies: Vec::new(),
         images: BTreeMap::new(),

@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ImageReference {
     pub registry: Option<String>,
-    pub namespace: Option<String>,
     pub name: String,
     pub tag: Option<String>,
     pub digest: Option<String>,
@@ -14,10 +13,6 @@ impl ImageReference {
         let mut s = String::new();
         if let Some(ref reg) = self.registry {
             s.push_str(reg);
-            s.push('/');
-        }
-        if let Some(ref ns) = self.namespace {
-            s.push_str(ns);
             s.push('/');
         }
         s.push_str(&self.name);
@@ -33,10 +28,6 @@ impl ImageReference {
         let mut s = String::new();
         if let Some(ref reg) = self.registry {
             s.push_str(reg);
-            s.push('/');
-        }
-        if let Some(ref ns) = self.namespace {
-            s.push_str(ns);
             s.push('/');
         }
         s.push_str(&self.name);
@@ -102,29 +93,25 @@ pub fn parse_oci_reference(s: &str) -> Option<ImageReference> {
     }
 
     let mut parts: Vec<&str> = remainder.split('/').collect();
-    let name = parts.pop()?.to_string();
-    let namespace = parts.pop().map(|s| s.to_string());
 
-    let registry = if !parts.is_empty() {
-        Some(parts.join("/"))
-    } else {
-        if let Some(ref ns) = namespace {
-            if ns.contains('.') || ns.contains(':') || ns == "localhost" {
-                return Some(ImageReference {
-                    registry: Some(ns.clone()),
-                    namespace: None,
-                    name,
-                    tag,
-                    digest,
-                });
-            }
+    let registry = if parts.len() > 1 {
+        let first = parts[0];
+        if first.contains('.') || first.contains(':') || first == "localhost" {
+            Some(parts.remove(0).to_string())
+        } else {
+            None
         }
+    } else {
         None
     };
 
+    if parts.is_empty() || parts.iter().any(|p| p.is_empty()) {
+        return None;
+    }
+    let name = parts.join("/");
+
     Some(ImageReference {
         registry,
-        namespace,
         name,
         tag,
         digest,

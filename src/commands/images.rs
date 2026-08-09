@@ -19,7 +19,6 @@ struct LocalImage {
 struct OutputRow {
     source: String,
     registry: String,
-    namespace: String,
     name: String,
     tag: String,
     digest: String,
@@ -82,7 +81,6 @@ pub async fn run_images(
             tracked_fqins.insert(fqin.clone());
 
             let registry = reference.registry.as_deref().unwrap_or("-");
-            let namespace = reference.namespace.as_deref().unwrap_or("-");
             let name = &reference.name;
             let tag = reference.tag.as_deref().unwrap_or("-");
             let expected_digest = reference.digest.as_deref().unwrap_or("-");
@@ -91,7 +89,6 @@ pub async fn run_images(
                 output_rows.push(OutputRow {
                     source: "Lock".to_string(),
                     registry: registry.to_string(),
-                    namespace: namespace.to_string(),
                     name: name.to_string(),
                     tag: tag.to_string(),
                     digest: shorten_hash(&local_img.digest).to_string(),
@@ -101,7 +98,6 @@ pub async fn run_images(
                 output_rows.push(OutputRow {
                     source: "Lock (Missing)".to_string(),
                     registry: registry.to_string(),
-                    namespace: namespace.to_string(),
                     name: name.to_string(),
                     tag: tag.to_string(),
                     digest: shorten_hash(expected_digest).to_string(),
@@ -117,7 +113,6 @@ pub async fn run_images(
             tracked_fqins.insert(fqin.clone());
 
             let registry = reference.registry.as_deref().unwrap_or("-");
-            let namespace = reference.namespace.as_deref().unwrap_or("-");
             let name = &reference.name;
             let tag = reference.tag.as_deref().unwrap_or("-");
             let expected_digest = reference.digest.as_deref().unwrap_or("-");
@@ -126,7 +121,6 @@ pub async fn run_images(
                 output_rows.push(OutputRow {
                     source: "State".to_string(),
                     registry: registry.to_string(),
-                    namespace: namespace.to_string(),
                     name: name.to_string(),
                     tag: tag.to_string(),
                     digest: shorten_hash(&local_img.digest).to_string(),
@@ -136,7 +130,6 @@ pub async fn run_images(
                 output_rows.push(OutputRow {
                     source: "State (Missing)".to_string(),
                     registry: registry.to_string(),
-                    namespace: namespace.to_string(),
                     name: name.to_string(),
                     tag: tag.to_string(),
                     digest: shorten_hash(expected_digest).to_string(),
@@ -157,10 +150,6 @@ pub async fn run_images(
                             .as_ref()
                             .and_then(|r| r.registry.as_deref())
                             .unwrap_or("-");
-                        let namespace = parsed
-                            .as_ref()
-                            .and_then(|r| r.namespace.as_deref())
-                            .unwrap_or("-");
                         let name = parsed.as_ref().map(|r| r.name.as_str()).unwrap_or(name_str);
                         let tag = parsed
                             .as_ref()
@@ -170,7 +159,6 @@ pub async fn run_images(
                         output_rows.push(OutputRow {
                             source: "Untracked".to_string(),
                             registry: registry.to_string(),
-                            namespace: namespace.to_string(),
                             name: name.to_string(),
                             tag: tag.to_string(),
                             digest: shorten_hash(&local_img.digest).to_string(),
@@ -196,13 +184,7 @@ pub async fn run_images(
     let mut table = Table::new();
     table.load_preset(UTF8_FULL);
     table.set_header(vec![
-        "SOURCE",
-        "REGISTRY",
-        "NAMESPACE",
-        "NAME",
-        "TAG",
-        "DIGEST",
-        "IMAGE ID",
+        "SOURCE", "REGISTRY", "NAME", "TAG", "DIGEST", "IMAGE ID",
     ]);
 
     for row in output_rows {
@@ -222,7 +204,6 @@ pub async fn run_images(
         table.add_row(vec![
             Cell::new(&row.source).fg(c_src),
             Cell::new(&row.registry).fg(c_def),
-            Cell::new(&row.namespace).fg(c_def),
             Cell::new(&row.name).fg(c_name),
             Cell::new(&row.tag).fg(c_def),
             Cell::new(&row.digest).fg(c_def),
