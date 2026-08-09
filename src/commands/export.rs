@@ -138,7 +138,7 @@ pub async fn run_export(
     drop(multi);
 
     if failed {
-        bail!("Failed to export some images. Check the logs above for details.");
+        bail!("Exporting completed with errors.");
     }
 
     println!(

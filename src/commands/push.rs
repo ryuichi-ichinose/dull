@@ -189,7 +189,7 @@ pub async fn run_push(
     drop(multi);
 
     if failed {
-        bail!("Failed to push some images. Check the logs above for details.");
+        bail!("Pushing completed with errors.");
     }
 
     println!("{} images were successfully pushed.", pushed_count);
