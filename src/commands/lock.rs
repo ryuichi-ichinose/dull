@@ -169,29 +169,32 @@ pub async fn run_lock(
         }));
     }
 
-    let mut error_messages = Vec::new();
+    let mut failed = false;
 
     for handle in handles {
         match handle.await {
             Ok(Ok((ref_str, locked_ref))) => {
                 ctx.lock.images.insert(ref_str, locked_ref);
             }
-            Ok(Err(e)) => error_messages.push(e.to_string()),
-            Err(e) => error_messages.push(format!("Task panicked: {}", e)),
+            Ok(Err(_)) => {
+                // Skopeo execution failed
+                failed = true;
+            }
+            Err(_) => {
+                // Tokio task panicked or was cancelled
+                failed = true;
+            }
         }
     }
 
-    if !error_messages.is_empty() {
-        drop(multi);
-        for err in error_messages {
-            eprintln!("Error: {}", err);
-        }
+    drop(multi);
+
+    if failed {
         bail!("Locking completed with errors.");
     }
 
     save_lock(&ctx)?;
 
-    drop(multi);
     println!("Lock file updated: {:?}", ctx.paths.lock_file);
 
     Ok(())
