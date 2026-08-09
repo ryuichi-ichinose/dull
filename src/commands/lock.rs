@@ -115,11 +115,10 @@ pub async fn run_lock(
         } else {
             if is_locked {
                 if !args.images.is_empty() {
-                    bail!(
+                    println!(
                         "Dependency '{}' is already locked.\n\
                          To overwrite it with the latest digest, use 'dull lock --upgrade {}'",
-                        target,
-                        target
+                        target, target
                     );
                 }
             } else {
@@ -134,10 +133,13 @@ pub async fn run_lock(
             println!("Lock file updated: {:?}", ctx.paths.lock_file);
             return Ok(());
         }
-        bail!(
-            "All dependencies are already locked.\n\
-             Use 'dull lock --upgrade' to update all, or 'dull lock --upgrade <IMAGE>' to update a specific one."
-        );
+        if args.images.is_empty() {
+            println!(
+                "All dependencies are already locked.\n\
+                 Use 'dull lock --upgrade' to update all, or 'dull lock --upgrade <IMAGE>' to update a specific one."
+            );
+        }
+        return Ok(());
     }
 
     println!("Locking {} dependencies...", to_resolve.len());
