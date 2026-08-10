@@ -1,7 +1,7 @@
 use crate::cli::ImagesArgs;
 use crate::config::ProjectContext;
 use crate::engine::BuildahEngine;
-use crate::image_reference::parse_oci_reference;
+use crate::image_reference::{ImageReference, parse_oci_reference};
 use anyhow::{Context, Result};
 use comfy_table::{Cell, Color, Table, presets::UTF8_FULL};
 use serde::{Deserialize, Serialize};
@@ -31,6 +31,38 @@ fn shorten_hash(hash: &str) -> &str {
     }
     let naked = hash.strip_prefix("sha256:").unwrap_or(hash);
     &naked[..12.min(naked.len())]
+}
+
+fn build_tracked_row(
+    source_label: &str,
+    reference: &ImageReference,
+    storage_map: &HashMap<String, LocalImage>,
+) -> (String, OutputRow) {
+    let fqin = reference.to_tag_string();
+    let registry = reference.registry.as_deref().unwrap_or("-").to_string();
+    let name = reference.name.clone();
+    let tag = reference.tag.as_deref().unwrap_or("-").to_string();
+
+    let row = match storage_map.get(&fqin) {
+        Some(local_img) => OutputRow {
+            source: source_label.to_string(),
+            registry,
+            name,
+            tag,
+            digest: shorten_hash(&local_img.digest).to_string(),
+            image_id: shorten_hash(&local_img.id).to_string(),
+        },
+        None => OutputRow {
+            source: format!("{} (Missing)", source_label),
+            registry,
+            name,
+            tag,
+            digest: shorten_hash(reference.digest.as_deref().unwrap_or("-")).to_string(),
+            image_id: "<MISSING>".to_string(),
+        },
+    };
+
+    (fqin, row)
 }
 
 pub async fn run_images(
@@ -76,66 +108,18 @@ pub async fn run_images(
     let mut output_rows = Vec::new();
 
     if !args.state {
-        for (_key, reference) in &ctx.lock.images {
-            let fqin = reference.to_tag_string();
-            tracked_fqins.insert(fqin.clone());
-
-            let registry = reference.registry.as_deref().unwrap_or("-");
-            let name = &reference.name;
-            let tag = reference.tag.as_deref().unwrap_or("-");
-            let expected_digest = reference.digest.as_deref().unwrap_or("-");
-
-            if let Some(local_img) = storage_map.get(&fqin) {
-                output_rows.push(OutputRow {
-                    source: "Lock".to_string(),
-                    registry: registry.to_string(),
-                    name: name.to_string(),
-                    tag: tag.to_string(),
-                    digest: shorten_hash(&local_img.digest).to_string(),
-                    image_id: shorten_hash(&local_img.id).to_string(),
-                });
-            } else {
-                output_rows.push(OutputRow {
-                    source: "Lock (Missing)".to_string(),
-                    registry: registry.to_string(),
-                    name: name.to_string(),
-                    tag: tag.to_string(),
-                    digest: shorten_hash(expected_digest).to_string(),
-                    image_id: "<MISSING>".to_string(),
-                });
-            }
+        for reference in ctx.lock.images.values() {
+            let (fqin, row) = build_tracked_row("Lock", reference, &storage_map);
+            tracked_fqins.insert(fqin);
+            output_rows.push(row);
         }
     }
 
     if !args.lock {
-        for (_key, reference) in &ctx.state.images {
-            let fqin = reference.to_tag_string();
-            tracked_fqins.insert(fqin.clone());
-
-            let registry = reference.registry.as_deref().unwrap_or("-");
-            let name = &reference.name;
-            let tag = reference.tag.as_deref().unwrap_or("-");
-            let expected_digest = reference.digest.as_deref().unwrap_or("-");
-
-            if let Some(local_img) = storage_map.get(&fqin) {
-                output_rows.push(OutputRow {
-                    source: "State".to_string(),
-                    registry: registry.to_string(),
-                    name: name.to_string(),
-                    tag: tag.to_string(),
-                    digest: shorten_hash(&local_img.digest).to_string(),
-                    image_id: shorten_hash(&local_img.id).to_string(),
-                });
-            } else {
-                output_rows.push(OutputRow {
-                    source: "State (Missing)".to_string(),
-                    registry: registry.to_string(),
-                    name: name.to_string(),
-                    tag: tag.to_string(),
-                    digest: shorten_hash(expected_digest).to_string(),
-                    image_id: "<MISSING>".to_string(),
-                });
-            }
+        for reference in ctx.state.images.values() {
+            let (fqin, row) = build_tracked_row("State", reference, &storage_map);
+            tracked_fqins.insert(fqin);
+            output_rows.push(row);
         }
     }
 
