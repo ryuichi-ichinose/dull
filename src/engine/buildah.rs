@@ -264,10 +264,8 @@ impl BuildahEngine {
 
         // Phase 1: Untag
         if !garbage_tags.is_empty() {
-            let mut args = vec!["rmi"];
-            args.extend(garbage_tags.iter().map(|s| s.as_str()));
-            let mut cmd = self.command("");
-            cmd.args(&args);
+            let mut cmd = self.command("rmi");
+            cmd.args(&garbage_tags);
 
             cmd.stdout(Stdio::null()).stderr(Stdio::null());
             let mut child = cmd.spawn()?;
@@ -278,10 +276,8 @@ impl BuildahEngine {
 
         // Phase 2: Remove IDs
         if !garbage_ids.is_empty() {
-            let mut args = vec!["rmi", "-f"];
-            args.extend(garbage_ids.iter().map(|s| s.as_str()));
-            let mut cmd = self.command("");
-            cmd.args(&args);
+            let mut cmd = self.command("rmi");
+            cmd.arg("-f").args(&garbage_ids);
 
             cmd.stdout(Stdio::null()).stderr(Stdio::null());
             let mut child = cmd.spawn()?;
