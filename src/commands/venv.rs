@@ -1,3 +1,4 @@
+use crate::cli::VenvArgs;
 use crate::config::{ProjectPaths, write_atomic};
 use anyhow::Result;
 use std::env;
@@ -25,7 +26,7 @@ fn apply_selinux_label(path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn run_venv() -> Result<()> {
+pub fn run_venv(args: VenvArgs) -> Result<()> {
     let root = env::current_dir()?;
     let paths = ProjectPaths::new(root);
 
@@ -34,39 +35,64 @@ pub fn run_venv() -> Result<()> {
         return Ok(());
     }
 
-    fs::create_dir_all(&paths.storage_dir)?;
-    apply_selinux_label(&paths.storage_dir)?;
+    if args.global {
+        fs::create_dir_all(&paths.containers_dir)?;
+        write_atomic(
+            &paths.storage_conf,
+            "# Intentionally empty: dull uses the host's global container storage.\n",
+        )?;
+        println!("Initialized .dull/storage.conf (using the host's global container storage)");
+    } else {
+        fs::create_dir_all(&paths.storage_dir)?;
+        apply_selinux_label(&paths.storage_dir)?;
 
-    if is_selinux_enabled() {
-        let storage_path = paths.storage_dir.display();
-        println!("WARNING: The SELinux label applied to the storage directory is temporary.");
-        println!(
-            "To ensure it survives a filesystem relabel (restorecon), register it permanently:"
+        if is_selinux_enabled() {
+            let storage_path = paths.storage_dir.display();
+            println!("WARNING: The SELinux label applied to the storage directory is temporary.");
+            println!(
+                "To ensure it survives a filesystem relabel (restorecon), register it permanently:"
+            );
+            println!(
+                "  sudo semanage fcontext -a -t container_var_lib_t '{}(/.*)?'",
+                storage_path
+            );
+            println!("  sudo restorecon -R -v {}", storage_path);
+            println!();
+        }
+
+        let mut overlay_options = format!(
+            "use_composefs = \"{composefs}\"\nmountopt = \"{mountopt}\"\n",
+            composefs = args.composefs,
+            mountopt = args.mountopt,
         );
-        println!(
-            "  sudo semanage fcontext -a -t container_var_lib_t '{}(/.*)?'",
-            storage_path
+        if let Some(ref size) = args.size {
+            overlay_options.push_str(&format!("size = \"{}\"\n", size));
+        }
+        if let Some(ref inodes) = args.inodes {
+            overlay_options.push_str(&format!("inodes = \"{}\"\n", inodes));
+        }
+
+        let conf_content = format!(
+            "[storage]\n\
+             driver = \"{driver}\"\n\
+             graphroot = \"{graphroot}\"\n\
+             \n\
+             [storage.options]\n\
+             pull_options = {{convert_images = \"{convert_images}\", enable_partial_images = \"{enable_partial_images}\", use_hard_links = \"{use_hard_links}\"}}\n\
+             \n\
+             [storage.options.overlay]\n\
+             {overlay_options}",
+            driver = args.driver,
+            graphroot = paths.storage_dir.display(),
+            convert_images = args.convert_images,
+            enable_partial_images = args.enable_partial_images,
+            use_hard_links = args.use_hard_links,
+            overlay_options = overlay_options,
         );
-        println!("  sudo restorecon -R -v {}", storage_path);
-        println!();
+
+        write_atomic(&paths.storage_conf, &conf_content)?;
+        println!("Initialized .dull/storage.conf");
     }
-
-    let conf_content = format!(
-        "[storage]\n\
-         driver = \"overlay\"\n\
-         graphroot = \"{}\"\n\
-         \n\
-         [storage.options]\n\
-         pull_options = {{convert_images = \"true\", enable_partial_images = \"true\", use_hard_links = \"true\"}}\n\
-         \n\
-         [storage.options.overlay]\n\
-         use_composefs = \"false\"\n\
-         mountopt = \"nodev,metacopy=on\"\n",
-        paths.storage_dir.display(),
-    );
-
-    write_atomic(&paths.storage_conf, &conf_content)?;
-    println!("Initialized .dull/storage.conf");
 
     // Self-contained ignore rule
     let gitignore_path = paths.dull_dir.join(".gitignore");

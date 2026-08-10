@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
     // Dispatch to subcommands
     match cli.command {
         Commands::Init => unreachable!(),
-        Commands::Venv => commands::venv::run_venv(),
+        Commands::Venv(args) => commands::venv::run_venv(args),
 
         // Context-only boundary
         Commands::Scan(args) => commands::scan::run_scan(ctx, args),

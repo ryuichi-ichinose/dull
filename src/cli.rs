@@ -11,7 +11,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     Init,
-    Venv,
+    Venv(VenvArgs),
     Scan(ScanArgs),
     Login(LoginArgs),
     Registry(RegistryArgs),
@@ -24,6 +24,47 @@ pub enum Commands {
     Gc(GcArgs),
     Images(ImagesArgs),
     Export(ExportArgs),
+}
+
+#[derive(Args)]
+pub struct VenvArgs {
+    /// Use the host's global/default container storage instead of an isolated
+    /// project-local one. Generates an empty storage.conf.
+    #[arg(
+        long,
+        conflicts_with_all = [
+            "driver", "mountopt", "composefs", "size", "inodes",
+            "convert_images", "enable_partial_images", "use_hard_links",
+        ]
+    )]
+    pub global: bool,
+
+    #[arg(long, default_value = "overlay")]
+    pub driver: String,
+
+    #[arg(long, default_value = "nodev")]
+    pub mountopt: String,
+
+    /// storage.options.overlay.use_composefs
+    #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
+    pub composefs: bool,
+
+    /// storage.options.overlay.size — max size of a read/write layer (e.g. "10G")
+    #[arg(long)]
+    pub size: Option<String>,
+
+    /// storage.options.overlay.inodes — max inodes in a read/write layer
+    #[arg(long)]
+    pub inodes: Option<String>,
+
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub convert_images: bool,
+
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub enable_partial_images: bool,
+
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub use_hard_links: bool,
 }
 
 #[derive(Args)]
