@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
         // Engine-required boundary
         // All other commands require the physical .dull/ environment to be fully initialized.
         cmd => {
-            let engine = Arc::new(BuildahEngine::new(ctx.clone())?);
+            let buildah_engine = Arc::new(BuildahEngine::new(ctx.clone())?);
             let skopeo_engine = Arc::new(SkopeoEngine::new(ctx.clone())?);
 
             match cmd {
@@ -44,17 +44,21 @@ async fn main() -> Result<()> {
                 }
                 Commands::Lock(args) => commands::lock::run_lock(skopeo_engine, ctx, args).await,
                 Commands::Fetch(args) => commands::fetch::run_fetch(skopeo_engine, ctx, args).await,
-                Commands::Build(args) => commands::build::run_build(engine, ctx, args).await,
+                Commands::Build(args) => {
+                    commands::build::run_build(buildah_engine, ctx, args).await
+                }
                 Commands::Push(args) => commands::push::run_push(skopeo_engine, ctx, args).await,
                 Commands::Export(args) => {
                     commands::export::run_export(skopeo_engine, ctx, args).await
                 }
-                Commands::Shell => commands::shell::run_shell(engine.as_ref(), ctx),
-                Commands::Clean => commands::clean::run_clean(engine.as_ref(), ctx).await,
+                Commands::Shell => commands::shell::run_shell(buildah_engine.as_ref(), ctx),
+                Commands::Clean => commands::clean::run_clean(buildah_engine.as_ref(), ctx).await,
                 Commands::Images(args) => {
-                    commands::images::run_images(engine.as_ref(), ctx, args).await
+                    commands::images::run_images(buildah_engine.as_ref(), ctx, args).await
                 }
-                Commands::Gc(args) => commands::gc::run_gc(engine.as_ref(), ctx, args).await,
+                Commands::Gc(args) => {
+                    commands::gc::run_gc(buildah_engine.as_ref(), ctx, args).await
+                }
                 _ => unreachable!(),
             }
         }
