@@ -52,12 +52,11 @@ async fn main() -> Result<()> {
                     commands::export::run_export(skopeo_engine, ctx, args).await
                 }
                 Commands::Shell => commands::shell::run_shell(buildah_engine.as_ref(), ctx),
-                Commands::Clean => commands::clean::run_clean(buildah_engine.as_ref(), ctx).await,
                 Commands::Images(args) => {
                     commands::images::run_images(buildah_engine.as_ref(), ctx, args).await
                 }
-                Commands::Gc(args) => {
-                    commands::gc::run_gc(buildah_engine.as_ref(), ctx, args).await
+                Commands::Rmi(args) => {
+                    commands::rmi::run_rmi(buildah_engine.as_ref(), ctx, args).await
                 }
                 _ => unreachable!(),
             }

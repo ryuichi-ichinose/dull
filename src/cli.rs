@@ -20,8 +20,7 @@ pub enum Commands {
     Build(BuildArgs),
     Push(PushArgs),
     Shell,
-    Clean,
-    Gc(GcArgs),
+    Rmi(RmiArgs),
     Images(ImagesArgs),
     Export(ExportArgs),
 }
@@ -144,10 +143,23 @@ pub struct LockArgs {
 }
 
 #[derive(Args)]
-pub struct GcArgs {
-    #[arg(long, conflicts_with = "lock_only")]
+pub struct RmiArgs {
+    /// Image names (dull.toml [images.X] keys) to remove from state and local storage
+    #[arg(num_args = 0.., conflicts_with_all = ["clean", "gc"])]
+    pub images: Vec<String>,
+
+    /// Wipe all images in project storage and reset dull_state
+    #[arg(long, conflicts_with_all = ["gc", "state_only", "lock_only"])]
+    pub clean: bool,
+
+    /// Remove images not tracked by state/lock
+    #[arg(long, conflicts_with = "clean")]
+    pub gc: bool,
+
+    #[arg(long, requires = "gc", conflicts_with = "lock_only")]
     pub state_only: bool,
-    #[arg(long, conflicts_with = "state_only")]
+
+    #[arg(long, requires = "gc", conflicts_with = "state_only")]
     pub lock_only: bool,
 }
 

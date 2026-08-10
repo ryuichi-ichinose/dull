@@ -313,6 +313,26 @@ impl BuildahEngine {
         Ok(())
     }
 
+    /// Removes specific images by tag from the isolated container storage
+    pub async fn remove_images(&self, tags: &[String]) -> Result<()> {
+        let mut cmd = self.command("rmi");
+        cmd.args(tags);
+
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let child = cmd.spawn()?;
+
+        let _guard = ProcessGroupGuard::new(&child);
+        let output = child.wait_with_output().await?;
+
+        if !output.status.success() {
+            bail!(
+                "Failed to remove images:\n{}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(())
+    }
+
     /// Overwrites the current process with an interactive shell configured for the isolated environment
     pub fn shell(&self, project_name: &str) -> Result<()> {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
