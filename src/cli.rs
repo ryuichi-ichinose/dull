@@ -76,7 +76,7 @@ pub struct ScanArgs {
 
 #[derive(Args)]
 pub struct LoginArgs {
-    pub registry: Option<String>,
+    pub registry: String,
     #[arg(short, long)]
     pub username: Option<String>,
     #[arg(short, long)]
@@ -119,7 +119,7 @@ pub struct PushArgs {
     #[arg(short, long)]
     pub tag: Option<String>,
     #[arg(short = 'r', long)]
-    pub registry: Option<String>,
+    pub registry: String,
     #[arg(short = 'j', long)]
     pub jobs: Option<usize>,
     #[arg(long)]

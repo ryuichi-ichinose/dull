@@ -63,13 +63,11 @@ pub async fn run_push(
     ctx: ProjectContext,
     args: PushArgs,
 ) -> Result<()> {
-    let target_reg_name = args.registry.as_deref().unwrap_or("default");
-
     let registry_profile = ctx
         .config
         .registries
-        .get(target_reg_name)
-        .with_context(|| format!("Registry '{}' not configured", target_reg_name))?;
+        .get(&args.registry)
+        .with_context(|| format!("Registry '{}' not configured", args.registry))?;
 
     let registry_base = &registry_profile.url;
 
