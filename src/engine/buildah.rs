@@ -1,5 +1,5 @@
 use crate::config::ProjectContext;
-use crate::engine::ProcessGroupGuard;
+use crate::engine::{ProcessGroupGuard, run_checked};
 use crate::image_reference::ImageReference;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -172,18 +172,7 @@ impl BuildahEngine {
         let mut digest_cmd = self.command("images");
         digest_cmd.args(["--json", &image_id]);
 
-        digest_cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-        let digest_child = digest_cmd.spawn()?;
-
-        let _digest_guard = ProcessGroupGuard::new(&digest_child);
-        let digest_output = digest_child.wait_with_output().await?;
-
-        if !digest_output.status.success() {
-            bail!(
-                "Failed to get image info:\n{}",
-                String::from_utf8_lossy(&digest_output.stderr)
-            );
-        }
+        let digest_output = run_checked(digest_cmd, "Failed to get image info").await?;
 
         let stdout_str = String::from_utf8(digest_output.stdout)?;
 
@@ -212,18 +201,7 @@ impl BuildahEngine {
         let mut cmd = self.command("images");
         cmd.arg("--json");
 
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-        let child = cmd.spawn()?;
-
-        let _guard = ProcessGroupGuard::new(&child);
-        let output = child.wait_with_output().await?;
-
-        if !output.status.success() {
-            bail!(
-                "Failed to execute buildah images:\n{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        let output = run_checked(cmd, "Failed to execute buildah images").await?;
 
         let stdout_str = String::from_utf8_lossy(&output.stdout);
         let stdout_str = stdout_str.trim();
@@ -314,18 +292,7 @@ impl BuildahEngine {
         let mut cmd = self.command("rmi");
         cmd.args(tags);
 
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-        let child = cmd.spawn()?;
-
-        let _guard = ProcessGroupGuard::new(&child);
-        let output = child.wait_with_output().await?;
-
-        if !output.status.success() {
-            bail!(
-                "Failed to remove images:\n{}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            );
-        }
+        run_checked(cmd, "Failed to remove images").await?;
         Ok(())
     }
 
