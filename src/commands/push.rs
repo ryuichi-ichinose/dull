@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 
+#[allow(clippy::too_many_arguments)]
 async fn push_single_image(
     engine: Arc<SkopeoEngine>,
     multi: Arc<MultiProgress>,
@@ -20,6 +21,7 @@ async fn push_single_image(
     sign_by: Option<&str>,
     sign_by_sigstore_private_key: Option<&Path>,
     sign_passphrase_file: Option<&Path>,
+    interactive: bool,
 ) -> Result<String> {
     let _permit = semaphore.acquire().await.expect("Semaphore closed");
 
@@ -31,7 +33,18 @@ async fn push_single_image(
     );
 
     pb.set_message(format!("Pushing {}...", name));
-    pb.enable_steady_tick(Duration::from_millis(100));
+    if interactive {
+        // A steadily redrawing spinner would fight with gpg/pinentry for the
+        // terminal while it prompts for a passphrase/PIN. Leave it static.
+        multi
+            .println(format!(
+                "Pushing {} (may prompt for a passphrase/PIN)...",
+                name
+            ))
+            .ok();
+    } else {
+        pb.enable_steady_tick(Duration::from_millis(100));
+    }
 
     match engine
         .push(
@@ -41,6 +54,7 @@ async fn push_single_image(
             sign_by,
             sign_by_sigstore_private_key,
             sign_passphrase_file,
+            interactive,
         )
         .await
     {
@@ -160,6 +174,7 @@ pub async fn run_push(
                 sign_by_clone.as_deref(),
                 sign_by_sigstore_private_key_clone.as_deref(),
                 sign_passphrase_file_clone.as_deref(),
+                requires_interactive_prompt,
             )
             .await
         }));
