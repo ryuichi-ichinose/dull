@@ -3,7 +3,7 @@ use crate::cli::BuildArgs;
 use crate::config::{ProjectContext, save_state};
 use crate::engine::{BuildOptions, BuildahEngine};
 use crate::image_reference::ImageReference;
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use futures::future::{FutureExt, Shared};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::{BTreeSet, HashMap};
@@ -21,8 +21,15 @@ pub async fn run_build(
 ) -> Result<()> {
     let targets: BTreeSet<String> = if args.all {
         ctx.config.images.keys().cloned().collect()
+    } else if let Some(group_name) = &args.group {
+        let group = ctx.config.build_groups.get(group_name).with_context(|| {
+            format!("Build group '{}' is not defined in dull.toml.", group_name)
+        })?;
+        let mut set: BTreeSet<String> = group.images.iter().cloned().collect();
+        set.extend(group.base.clone());
+        set
     } else if args.images.is_empty() {
-        bail!("Specify image names or use --all");
+        bail!("Specify image names, use --all, or use --group <name>");
     } else {
         args.images.iter().cloned().collect()
     };

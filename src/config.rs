@@ -19,8 +19,6 @@ fn default_context() -> String {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 pub struct ImageProfile {
     pub path: String,
-    #[serde(default)]
-    pub depends_on: Vec<String>,
     #[serde(default = "default_tag")]
     pub local_tag: String,
     #[serde(default = "default_context")]
@@ -35,6 +33,14 @@ pub struct RegistryProfile {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct BuildGroup {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    #[serde(default)]
+    pub images: Vec<String>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct DullConfig {
     #[serde(default)]
     pub registries: BTreeMap<String, RegistryProfile>,
@@ -42,6 +48,8 @@ pub struct DullConfig {
     pub dependencies: Vec<String>,
     #[serde(default)]
     pub images: BTreeMap<String, ImageProfile>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub build_groups: BTreeMap<String, BuildGroup>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]

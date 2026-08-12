@@ -16,6 +16,7 @@ pub fn run_init() -> Result<()> {
         registries: BTreeMap::new(),
         dependencies: Vec::new(),
         images: BTreeMap::new(),
+        build_groups: BTreeMap::new(),
     };
 
     let toml_content = toml::to_string_pretty(&conf)?;

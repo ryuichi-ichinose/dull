@@ -137,7 +137,6 @@ pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
 
         let profile = ImageProfile {
             path: rel_path,
-            depends_on: Vec::new(),
             local_tag: "latest".to_string(),
             context: context_str,
             args: BTreeMap::new(),

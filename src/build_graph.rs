@@ -1,5 +1,6 @@
 use crate::config::{DullConfig, ImageProfile};
 use anyhow::{Context, Result};
+use petgraph::Direction;
 use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
 use std::collections::{BTreeSet, HashMap};
@@ -14,7 +15,6 @@ pub struct BuildPlan {
     pub tasks: Vec<BuildTask>,
 }
 
-// Compute build plan with all necessary metadata for execution
 pub fn compute_plan(config: &DullConfig, targets: &BTreeSet<String>) -> Result<BuildPlan> {
     let mut graph = DiGraph::<String, ()>::new();
     let mut node_map = HashMap::new();
@@ -23,13 +23,15 @@ pub fn compute_plan(config: &DullConfig, targets: &BTreeSet<String>) -> Result<B
         node_map.insert(name.clone(), graph.add_node(name.clone()));
     }
 
-    for (name, profile) in &config.images {
-        let to_idx = node_map[name];
-        for dep in &profile.depends_on {
-            let from_idx = node_map
-                .get(dep)
-                .cloned()
-                .with_context(|| format!("Image '{}' depends on undefined '{}'", name, dep))?;
+    for group in config.build_groups.values() {
+        let Some(base) = &group.base else { continue };
+        let from_idx = *node_map
+            .get(base)
+            .with_context(|| format!("Build group base '{}' is not a defined image", base))?;
+        for image_name in &group.images {
+            let to_idx = *node_map.get(image_name).with_context(|| {
+                format!("Build group references undefined image '{}'", image_name)
+            })?;
             graph.add_edge(from_idx, to_idx, ());
         }
     }
@@ -60,16 +62,16 @@ pub fn compute_plan(config: &DullConfig, targets: &BTreeSet<String>) -> Result<B
     // Create tasks in topological order
     let tasks = sorted_indices
         .into_iter()
-        .map(|i| graph[i].clone())
-        .filter(|name| build_selection.contains(name))
-        .map(|name| {
+        .filter(|&i| build_selection.contains(&graph[i]))
+        .map(|i| {
+            let name = graph[i].clone();
             let profile = config.images[&name].clone();
-            // Filter dependencies to only include those that are also in the plan
-            let dependencies = profile
-                .depends_on
-                .iter()
-                .filter(|d| build_selection.contains(*d))
-                .cloned()
+            // Immediate dependencies are the graph's predecessors, filtered
+            // to only include those that are also in the plan.
+            let dependencies = graph
+                .neighbors_directed(i, Direction::Incoming)
+                .map(|dep_idx| graph[dep_idx].clone())
+                .filter(|d| build_selection.contains(d))
                 .collect();
 
             BuildTask {

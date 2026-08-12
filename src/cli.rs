@@ -100,10 +100,12 @@ pub enum RegistryAction {
 
 #[derive(Args)]
 pub struct BuildArgs {
-    #[arg(short, long, conflicts_with = "images")]
+    #[arg(short, long, conflicts_with_all = ["images", "group"])]
     pub all: bool,
-    #[arg(num_args = 1..)]
+    #[arg(num_args = 1.., conflicts_with = "group")]
     pub images: Vec<String>,
+    #[arg(short, long, conflicts_with_all = ["all", "images"])]
+    pub group: Option<String>,
     #[arg(short, long)]
     pub tag: Option<String>,
     #[arg(short = 'j', long)]
