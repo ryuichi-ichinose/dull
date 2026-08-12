@@ -145,22 +145,24 @@ pub struct LockArgs {
 #[derive(Args)]
 pub struct RmiArgs {
     /// Image names (dull.toml [images.X] keys) to remove from state and local storage
-    #[arg(num_args = 0.., conflicts_with_all = ["clean", "gc"])]
+    #[arg(num_args = 0.., conflicts_with_all = ["all", "keep_tracked", "keep_state", "keep_lock"])]
     pub images: Vec<String>,
 
     /// Wipe all images in project storage and reset dull_state
-    #[arg(long, conflicts_with_all = ["gc", "state_only", "lock_only"])]
-    pub clean: bool,
+    #[arg(long, conflicts_with_all = ["keep_tracked", "keep_state", "keep_lock"])]
+    pub all: bool,
 
-    /// Remove images not tracked by state/lock
-    #[arg(long, conflicts_with = "clean")]
-    pub gc: bool,
+    /// Keep everything tracked by state or lock; remove the rest
+    #[arg(long, conflicts_with = "all")]
+    pub keep_tracked: bool,
 
-    #[arg(long, requires = "gc", conflicts_with = "lock_only")]
-    pub state_only: bool,
+    /// Keep images tracked by state (built images)
+    #[arg(long, conflicts_with = "all")]
+    pub keep_state: bool,
 
-    #[arg(long, requires = "gc", conflicts_with = "state_only")]
-    pub lock_only: bool,
+    /// Keep images tracked by lock (fetched base images)
+    #[arg(long, conflicts_with = "all")]
+    pub keep_lock: bool,
 }
 
 #[derive(Args)]

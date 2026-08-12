@@ -5,14 +5,16 @@ use anyhow::{Result, bail};
 use std::collections::HashSet;
 
 pub async fn run_rmi(engine: &BuildahEngine, mut ctx: ProjectContext, args: RmiArgs) -> Result<()> {
-    if args.clean {
+    if args.all {
         return run_clean(engine, ctx).await;
     }
-    if args.gc {
-        return run_gc(engine, ctx, args.state_only, args.lock_only).await;
+    if args.keep_tracked || args.keep_state || args.keep_lock {
+        let keep_state = args.keep_tracked || args.keep_state;
+        let keep_lock = args.keep_tracked || args.keep_lock;
+        return run_gc(engine, ctx, keep_state, keep_lock).await;
     }
     if args.images.is_empty() {
-        bail!("Specify an image name, or use --gc / --clean");
+        bail!("Specify an image name, or use --keep-tracked / --keep-state / --keep-lock / --all");
     }
 
     let mut tags = Vec::new();
@@ -63,13 +65,13 @@ async fn run_clean(engine: &BuildahEngine, mut ctx: ProjectContext) -> Result<()
 async fn run_gc(
     engine: &BuildahEngine,
     ctx: ProjectContext,
-    state_only: bool,
-    lock_only: bool,
+    keep_state: bool,
+    keep_lock: bool,
 ) -> Result<()> {
     let mut active_hashes = HashSet::new();
     let mut active_refs = HashSet::new();
 
-    if !lock_only {
+    if keep_state {
         for reference in ctx.state.images.values() {
             if let Some(ref d) = reference.digest {
                 active_hashes.insert(d.clone());
@@ -78,7 +80,7 @@ async fn run_gc(
         }
     }
 
-    if !state_only {
+    if keep_lock {
         for reference in ctx.lock.images.values() {
             if let Some(ref d) = reference.digest {
                 active_hashes.insert(d.clone());
@@ -87,20 +89,20 @@ async fn run_gc(
         }
     }
 
-    if state_only {
-        println!(
-            "STATE-ONLY MODE: Tracking {} built images. Fetched base images will be removed...",
-            ctx.state.images.len()
-        );
-    } else if lock_only {
-        println!(
-            "LOCK-ONLY MODE: Tracking {} base images. Built images will be removed...",
-            ctx.lock.images.len()
-        );
-    } else {
+    if keep_state && keep_lock {
         println!(
             "Tracking {} built images (state) and {} base images (lock)...",
             ctx.state.images.len(),
+            ctx.lock.images.len()
+        );
+    } else if keep_state {
+        println!(
+            "Keeping {} built images (state) only. Base images (lock) will be removed...",
+            ctx.state.images.len()
+        );
+    } else {
+        println!(
+            "Keeping {} base images (lock) only. Built images (state) will be removed...",
             ctx.lock.images.len()
         );
     }
