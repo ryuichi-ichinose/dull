@@ -1,19 +1,11 @@
 use crate::cli::ImagesArgs;
 use crate::config::ProjectContext;
-use crate::engine::BuildahEngine;
+use crate::engine::{BuildahEngine, LocalImage};
 use crate::image_reference::{ImageReference, parse_oci_reference};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use comfy_table::{Cell, Color, Table, presets::UTF8_FULL};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-
-#[derive(Deserialize, Debug, Clone)]
-struct LocalImage {
-    id: String,
-    digest: String,
-    #[serde(default)]
-    names: Option<Vec<String>>,
-}
 
 #[derive(Serialize)]
 struct OutputRow {
@@ -70,28 +62,7 @@ pub async fn run_images(
     ctx: ProjectContext,
     args: ImagesArgs,
 ) -> Result<()> {
-    let output = engine
-        .command("images")
-        .arg("--json")
-        .output()
-        .await
-        .context("Failed to execute 'buildah images'")?;
-
-    if !output.status.success() {
-        anyhow::bail!(
-            "Failed to get local images:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-    let stdout_str = stdout_str.trim();
-
-    let local_images: Vec<LocalImage> = if stdout_str.is_empty() || stdout_str == "null" {
-        Vec::new()
-    } else {
-        serde_json::from_str(stdout_str).context("Failed to parse buildah images JSON")?
-    };
+    let local_images = engine.list_images().await?;
 
     let mut storage_map = HashMap::new();
     for img in &local_images {

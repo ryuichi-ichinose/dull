@@ -20,12 +20,12 @@ pub struct BuildOptions<'a> {
     pub build_args: &'a std::collections::BTreeMap<String, String>,
 }
 
-#[derive(Deserialize, Debug)]
-struct BuildahImage {
-    id: String,
-    digest: String,
+#[derive(Deserialize, Debug, Clone)]
+pub struct LocalImage {
+    pub id: String,
+    pub digest: String,
     #[serde(default)]
-    names: Option<Vec<String>>,
+    pub names: Option<Vec<String>>,
 }
 
 #[derive(Debug)]
@@ -176,7 +176,7 @@ impl BuildahEngine {
 
         let stdout_str = String::from_utf8(digest_output.stdout)?;
 
-        let images: Vec<BuildahImage> =
+        let images: Vec<LocalImage> =
             serde_json::from_str(&stdout_str).context("Failed to parse buildah images JSON")?;
 
         let digest = images
@@ -192,12 +192,7 @@ impl BuildahEngine {
         Ok(completed_reference)
     }
 
-    /// Analyzes local storage against active references and destroys garbage
-    pub async fn gc(
-        &self,
-        active_hashes: &HashSet<String>,
-        active_refs: &HashSet<String>,
-    ) -> Result<GcReport> {
+    pub async fn list_images(&self) -> Result<Vec<LocalImage>> {
         let mut cmd = self.command("images");
         cmd.arg("--json");
 
@@ -207,13 +202,19 @@ impl BuildahEngine {
         let stdout_str = stdout_str.trim();
 
         if stdout_str.is_empty() || stdout_str == "null" {
-            return Ok(GcReport {
-                untagged: HashSet::new(),
-                removed_ids: HashSet::new(),
-            });
+            return Ok(Vec::new());
         }
 
-        let buildah_images: Vec<BuildahImage> = serde_json::from_str(stdout_str)?;
+        Ok(serde_json::from_str(stdout_str)?)
+    }
+
+    /// Analyzes local storage against active references and destroys garbage
+    pub async fn gc(
+        &self,
+        active_hashes: &HashSet<String>,
+        active_refs: &HashSet<String>,
+    ) -> Result<GcReport> {
+        let buildah_images = self.list_images().await?;
         let mut garbage_ids = HashSet::new();
         let mut garbage_tags = HashSet::new();
 

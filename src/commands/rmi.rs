@@ -64,7 +64,7 @@ async fn run_clean(engine: &BuildahEngine, mut ctx: ProjectContext) -> Result<()
 
 async fn run_gc(
     engine: &BuildahEngine,
-    ctx: ProjectContext,
+    mut ctx: ProjectContext,
     keep_state: bool,
     keep_lock: bool,
 ) -> Result<()> {
@@ -108,6 +108,25 @@ async fn run_gc(
     }
 
     let report = engine.gc(&active_hashes, &active_refs).await?;
+
+    if !keep_state {
+        let local_images = engine.list_images().await?;
+        let existing_names: HashSet<String> = local_images
+            .into_iter()
+            .flat_map(|img| img.names.unwrap_or_default())
+            .collect();
+
+        let before = ctx.state.images.len();
+        ctx.state
+            .images
+            .retain(|_, reference| existing_names.contains(&reference.to_tag_string()));
+        let pruned = before - ctx.state.images.len();
+
+        if pruned > 0 {
+            save_state(&ctx)?;
+            println!("Pruned {} stale entries from dull_state.", pruned);
+        }
+    }
 
     if report.untagged.is_empty() && report.removed_ids.is_empty() {
         println!("All local images are actively tracked. The system is in perfect order.");
