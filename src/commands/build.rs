@@ -1,4 +1,5 @@
 use crate::build_graph::compute_plan;
+use crate::build_lock::BuildLock;
 use crate::cli::BuildArgs;
 use crate::config::{ProjectContext, save_state};
 use crate::engine::{BuildOptions, BuildahEngine};
@@ -19,6 +20,8 @@ pub async fn run_build(
     mut ctx: ProjectContext,
     args: BuildArgs,
 ) -> Result<()> {
+    let _build_lock = BuildLock::acquire(&ctx.paths.build_lock_file)?;
+
     let targets: BTreeSet<String> = if args.all {
         ctx.config.images.keys().cloned().collect()
     } else if let Some(group_name) = &args.group {

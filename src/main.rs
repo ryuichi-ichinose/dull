@@ -1,4 +1,5 @@
 mod build_graph;
+mod build_lock;
 mod cli;
 mod commands;
 mod config;
