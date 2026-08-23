@@ -197,14 +197,14 @@ pub async fn run_build(
         }
     }
 
-    if !failed_names.is_empty() {
-        bail!("Build completed with errors.");
-    }
-
     ctx.state
         .images
         .retain(|k, _| ctx.config.images.contains_key(k));
     save_state(&ctx)?;
+
+    if !failed_names.is_empty() {
+        bail!("Build completed with errors.");
+    }
 
     println!(
         "Successfully updated {}",
