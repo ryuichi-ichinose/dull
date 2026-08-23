@@ -129,7 +129,7 @@ async fn run_gc(
     }
 
     if report.untagged.is_empty() && report.removed_ids.is_empty() {
-        println!("All local images are actively tracked. The system is in perfect order.");
+        println!("Nothing to garbage collect.");
         return Ok(());
     }
 
