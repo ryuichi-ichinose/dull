@@ -105,7 +105,12 @@ pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
             .to_string();
 
         let mut base_name = if context_path.is_empty() {
-            "root".to_string()
+            ctx.paths
+                .root
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("root")
+                .to_string()
         } else {
             // Replace path separators with '/' instead of '-'
             context_path.replace(std::path::MAIN_SEPARATOR, "/")
@@ -162,17 +167,36 @@ pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
         exists
     });
 
-    for (name, profile) in disk_images {
-        ctx.config
-            .images
-            .entry(name.clone())
-            .and_modify(|existing| {
+    // Match by path first so a manually renamed [images.X] entry keeps its
+    // name instead of getting a duplicate re-added under the scanned name.
+    let path_to_existing_name: BTreeMap<String, String> = ctx
+        .config
+        .images
+        .iter()
+        .map(|(name, profile)| (profile.path.clone(), name.clone()))
+        .collect();
+
+    for (scanned_name, profile) in disk_images {
+        if let Some(existing_name) = path_to_existing_name.get(&profile.path) {
+            if let Some(existing) = ctx.config.images.get_mut(existing_name) {
                 existing.context = profile.context.clone();
-            })
-            .or_insert_with(|| {
-                println!("+ Found new image: {}", name);
-                profile
-            });
+            }
+            continue;
+        }
+
+        if let Some(existing) = ctx.config.images.get(&scanned_name) {
+            bail!(
+                "Image name collision: '{}' is already configured for '{}', but this scan wants \
+                 to use it for the different file '{}'. Rename the existing entry in dull.toml to \
+                 resolve this.",
+                scanned_name,
+                existing.path,
+                profile.path
+            );
+        }
+
+        println!("+ Found new image: {}", scanned_name);
+        ctx.config.images.insert(scanned_name, profile);
     }
 
     save_config(&ctx)?;
