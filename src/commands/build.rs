@@ -1,6 +1,6 @@
 use crate::build_graph::compute_plan;
 use crate::build_lock::BuildLock;
-use crate::cli::BuildArgs;
+use crate::cli::{BuildArgs, LogsMode};
 use crate::config::{ProjectContext, save_state};
 use crate::engine::{BuildOptions, BuildahEngine};
 use crate::image_reference::ImageReference;
@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use futures::future::{FutureExt, Shared};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::{BTreeSet, HashMap};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
@@ -61,15 +62,28 @@ pub async fn run_build(
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let multi = Arc::new(MultiProgress::new());
     let mut task_futures: HashMap<String, SharedTaskFuture> = HashMap::new();
+    let mut log_paths: HashMap<String, PathBuf> = HashMap::new();
 
     let base_root = ctx.paths.root.clone();
 
     for task in plan.tasks {
-        let session_log_dir_clone = session_log_dir.clone();
-
         let name = task.name;
         let profile = task.profile;
         let build_tag = args.tag.clone().unwrap_or(profile.local_tag);
+
+        let reference = ImageReference {
+            registry: Some("localhost".into()),
+            name: name.clone(),
+            tag: Some(build_tag),
+            digest: None,
+        };
+
+        let safe_tag_name = reference
+            .to_tag_string()
+            .replace('/', "_")
+            .replace(':', "_");
+        let log_path = session_log_dir.join(format!("{}.log", safe_tag_name));
+        log_paths.insert(name.clone(), log_path.clone());
 
         let engine = Arc::clone(&engine);
         let semaphore = Arc::clone(&semaphore);
@@ -105,21 +119,8 @@ pub async fn run_build(
             pb.set_message(format!("Building {}...", name));
             pb.enable_steady_tick(Duration::from_millis(100));
 
-            let reference = ImageReference {
-                registry: Some("localhost".into()),
-                name: name,
-                tag: Some(build_tag),
-                digest: None,
-            };
-
             let (log_tx, mut log_rx) = tokio::sync::mpsc::channel::<String>(100);
             let pb_clone = pb.clone();
-
-            let safe_tag_name = reference
-                .to_tag_string()
-                .replace('/', "_")
-                .replace(':', "_");
-            let log_path = session_log_dir_clone.join(format!("{}.log", safe_tag_name));
 
             tokio::spawn(async move {
                 if let Ok(mut log_file) = tokio::fs::File::create(&log_path).await {
@@ -163,17 +164,40 @@ pub async fn run_build(
         );
     }
 
-    let mut build_errors = false;
+    let mut failed_names: Vec<String> = Vec::new();
     for (name, fut) in task_futures {
         match fut.await {
             Ok(completed_ref) => {
                 ctx.state.images.insert(name, completed_ref);
             }
-            Err(_) => build_errors = true,
+            Err(_) => failed_names.push(name),
         }
     }
 
-    if build_errors {
+    drop(multi);
+
+    if let Some(mode) = &args.logs {
+        let names_to_dump: Vec<&String> = match mode {
+            LogsMode::Errors => failed_names.iter().collect(),
+            LogsMode::All => {
+                let mut names: Vec<&String> = log_paths.keys().collect();
+                names.sort();
+                names
+            }
+        };
+
+        for name in names_to_dump {
+            if let Some(log_path) = log_paths.get(name) {
+                println!("=== {} ===", name);
+                match std::fs::read_to_string(log_path) {
+                    Ok(contents) => println!("{}", contents),
+                    Err(e) => println!("(failed to read log: {})", e),
+                }
+            }
+        }
+    }
+
+    if !failed_names.is_empty() {
         bail!("Build completed with errors.");
     }
 
@@ -182,7 +206,6 @@ pub async fn run_build(
         .retain(|k, _| ctx.config.images.contains_key(k));
     save_state(&ctx)?;
 
-    drop(multi);
     println!(
         "Successfully updated {}",
         ctx.paths.state_file.to_string_lossy()

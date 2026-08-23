@@ -98,6 +98,12 @@ pub enum RegistryAction {
     Ls,
 }
 
+#[derive(clap::ValueEnum, Clone, Debug, PartialEq, Eq)]
+pub enum LogsMode {
+    Errors,
+    All,
+}
+
 #[derive(Args)]
 pub struct BuildArgs {
     #[arg(short, long, conflicts_with_all = ["images", "group"])]
@@ -110,6 +116,8 @@ pub struct BuildArgs {
     pub tag: Option<String>,
     #[arg(short = 'j', long)]
     pub jobs: Option<usize>,
+    #[arg(long, value_enum)]
+    pub logs: Option<LogsMode>,
 }
 
 #[derive(Args)]

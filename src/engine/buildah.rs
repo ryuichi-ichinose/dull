@@ -126,7 +126,8 @@ impl BuildahEngine {
 
         let _guard = ProcessGroupGuard::new(&child);
 
-        let mut error_buffer = VecDeque::with_capacity(20);
+        let mut error_buffer: VecDeque<String> = VecDeque::new();
+        const ERROR_BUFFER_LINES: usize = 20;
         let stdout = child.stdout.take().unwrap();
         let stderr = child.stderr.take().unwrap();
 
@@ -142,8 +143,10 @@ impl BuildahEngine {
                         if let Some(ref tx) = log_tx {
                             let _ = tx.send(line.clone()).await;
                         }
-                        if error_buffer.len() == 20 { error_buffer.pop_front(); }
                         error_buffer.push_back(line);
+                        if error_buffer.len() > ERROR_BUFFER_LINES {
+                            error_buffer.pop_front();
+                        }
                     } else { stdout_done = true; }
                 }
                 line = stderr_reader.next_line(), if !stderr_done => {
@@ -151,8 +154,10 @@ impl BuildahEngine {
                         if let Some(ref tx) = log_tx {
                             let _ = tx.send(line.clone()).await;
                         }
-                        if error_buffer.len() == 20 { error_buffer.pop_front(); }
                         error_buffer.push_back(line);
+                        if error_buffer.len() > ERROR_BUFFER_LINES {
+                            error_buffer.pop_front();
+                        }
                     } else { stderr_done = true; }
                 }
             }
@@ -163,7 +168,7 @@ impl BuildahEngine {
             bail!(
                 "BUILD FAILED: {}\nLog:\n{}",
                 reference.name,
-                error_buffer.make_contiguous().join("\n")
+                Vec::from(error_buffer).join("\n")
             );
         }
 
