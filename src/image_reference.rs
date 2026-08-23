@@ -64,6 +64,14 @@ impl ImageReference {
     }
 }
 
+pub fn shorten_digest(digest: &str) -> &str {
+    if digest.is_empty() || digest == "-" {
+        return "-";
+    }
+    let naked = digest.strip_prefix("sha256:").unwrap_or(digest);
+    &naked[..12.min(naked.len())]
+}
+
 pub fn parse_oci_reference(s: &str) -> Option<ImageReference> {
     if s.is_empty() {
         return None;

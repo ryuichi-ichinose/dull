@@ -1,7 +1,7 @@
 use crate::cli::LockArgs;
 use crate::config::{ProjectContext, save_lock};
 use crate::engine::SkopeoEngine;
-use crate::image_reference::{ImageReference, parse_oci_reference};
+use crate::image_reference::{ImageReference, parse_oci_reference, shorten_digest};
 use anyhow::{Context, Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::BTreeMap;
@@ -94,6 +94,7 @@ pub async fn run_lock(
     }
 
     let mut to_resolve = Vec::new();
+    let mut old_digests: BTreeMap<String, Option<String>> = BTreeMap::new();
 
     let target_keys: Vec<&String> = if args.images.is_empty() {
         parsed_deps.keys().collect()
@@ -110,7 +111,8 @@ pub async fn run_lock(
         let is_locked = ctx.lock.images.contains_key(target);
 
         if args.upgrade {
-            ctx.lock.images.remove(target);
+            let old_digest = ctx.lock.images.remove(target).and_then(|r| r.digest);
+            old_digests.insert(target.clone(), old_digest);
             to_resolve.push((target.clone(), reference));
         } else {
             if is_locked {
@@ -122,6 +124,7 @@ pub async fn run_lock(
                     );
                 }
             } else {
+                old_digests.insert(target.clone(), None);
                 to_resolve.push((target.clone(), reference));
             }
         }
@@ -170,10 +173,31 @@ pub async fn run_lock(
     }
 
     let mut failed = false;
+    let mut changes = Vec::new();
 
     for handle in handles {
         match handle.await {
             Ok(Ok((ref_str, locked_ref))) => {
+                let old_digest = old_digests.get(&ref_str).cloned().flatten();
+                let new_digest = locked_ref.digest.clone();
+
+                match old_digest {
+                    None => changes.push(format!(
+                        "+ {} locked at {}",
+                        ref_str,
+                        new_digest.as_deref().map(shorten_digest).unwrap_or("-")
+                    )),
+                    Some(old) if Some(old.as_str()) != new_digest.as_deref() => {
+                        changes.push(format!(
+                            "~ {} {} -> {}",
+                            ref_str,
+                            shorten_digest(&old),
+                            new_digest.as_deref().map(shorten_digest).unwrap_or("-")
+                        ));
+                    }
+                    _ => {}
+                }
+
                 ctx.lock.images.insert(ref_str, locked_ref);
             }
             Ok(Err(_)) => {
@@ -194,6 +218,14 @@ pub async fn run_lock(
     }
 
     save_lock(&ctx)?;
+
+    if changes.is_empty() {
+        println!("No digest changes.");
+    } else {
+        for change in changes {
+            println!("{}", change);
+        }
+    }
 
     println!("Lock file updated: {:?}", ctx.paths.lock_file);
 

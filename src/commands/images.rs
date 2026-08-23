@@ -1,7 +1,7 @@
 use crate::cli::ImagesArgs;
 use crate::config::ProjectContext;
 use crate::engine::{BuildahEngine, LocalImage};
-use crate::image_reference::{ImageReference, parse_oci_reference};
+use crate::image_reference::{ImageReference, parse_oci_reference, shorten_digest};
 use anyhow::Result;
 use comfy_table::{Cell, Color, Table, presets::UTF8_FULL};
 use serde::Serialize;
@@ -15,14 +15,6 @@ struct OutputRow {
     tag: String,
     digest: String,
     image_id: String,
-}
-
-fn shorten_hash(hash: &str) -> &str {
-    if hash.is_empty() || hash == "-" {
-        return "-";
-    }
-    let naked = hash.strip_prefix("sha256:").unwrap_or(hash);
-    &naked[..12.min(naked.len())]
 }
 
 fn build_tracked_row(
@@ -41,15 +33,15 @@ fn build_tracked_row(
             registry,
             name,
             tag,
-            digest: shorten_hash(&local_img.digest).to_string(),
-            image_id: shorten_hash(&local_img.id).to_string(),
+            digest: shorten_digest(&local_img.digest).to_string(),
+            image_id: shorten_digest(&local_img.id).to_string(),
         },
         None => OutputRow {
             source: format!("{} (Missing)", source_label),
             registry,
             name,
             tag,
-            digest: shorten_hash(reference.digest.as_deref().unwrap_or("-")).to_string(),
+            digest: shorten_digest(reference.digest.as_deref().unwrap_or("-")).to_string(),
             image_id: "<MISSING>".to_string(),
         },
     };
@@ -116,8 +108,8 @@ pub async fn run_images(
                             registry: registry.to_string(),
                             name: name.to_string(),
                             tag: tag.to_string(),
-                            digest: shorten_hash(&local_img.digest).to_string(),
-                            image_id: shorten_hash(&local_img.id).to_string(),
+                            digest: shorten_digest(&local_img.digest).to_string(),
+                            image_id: shorten_digest(&local_img.id).to_string(),
                         });
                     }
                 }

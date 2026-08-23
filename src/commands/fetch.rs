@@ -1,7 +1,7 @@
 use crate::cli::FetchArgs;
 use crate::config::ProjectContext;
 use crate::engine::SkopeoEngine;
-use crate::image_reference::ImageReference;
+use crate::image_reference::{ImageReference, shorten_digest};
 use anyhow::{Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::sync::Arc;
@@ -28,8 +28,13 @@ async fn fetch_single_image(
     pb.enable_steady_tick(Duration::from_millis(100));
 
     match engine.fetch(&reference, is_insecure).await {
-        Ok(_) => {
-            pb.finish_with_message(format!("{} fetched", name));
+        Ok(digest) => {
+            pb.finish_with_message(format!(
+                "{} fetched ({}@{})",
+                name,
+                reference.to_tag_string(),
+                shorten_digest(&digest)
+            ));
             Ok(())
         }
         Err(e) => {
