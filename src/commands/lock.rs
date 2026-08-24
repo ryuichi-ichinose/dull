@@ -76,7 +76,7 @@ pub async fn run_lock(
         println!("No dependencies defined in dull.toml.");
         if pruned_count > 0 {
             save_lock(&ctx)?;
-            println!("Lock file updated: {:?}", ctx.paths.lock_file);
+            println!("Lock file updated.");
         }
         return Ok(());
     }
@@ -144,7 +144,7 @@ pub async fn run_lock(
     if to_resolve.is_empty() {
         if pruned_count > 0 {
             save_lock(&ctx)?;
-            println!("Lock file updated: {:?}", ctx.paths.lock_file);
+            println!("Lock file updated.");
             return Ok(());
         }
         if args.images.is_empty() {
@@ -238,7 +238,7 @@ pub async fn run_lock(
         }
     }
 
-    println!("Lock file updated: {:?}", ctx.paths.lock_file);
+    println!("Lock file updated.");
 
     Ok(())
 }

@@ -75,7 +75,8 @@ pub async fn run_fetch(
         return Ok(());
     }
 
-    println!("Fetching {} dependencies...", to_fetch.len());
+    let fetch_count = to_fetch.len();
+    println!("Fetching {} dependencies...", fetch_count);
 
     let concurrency = std::thread::available_parallelism().map_or(4, |n| n.get());
     let semaphore = Arc::new(Semaphore::new(concurrency));
@@ -114,7 +115,7 @@ pub async fn run_fetch(
     }
 
     drop(multi);
-    println!("All requested dependencies fetched.");
+    println!("Fetched {} dependencies.", fetch_count);
 
     Ok(())
 }

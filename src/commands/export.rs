@@ -83,10 +83,7 @@ pub async fn run_export(
         let local_reference = match ctx.state.images.get(&name) {
             Some(info) => info.clone(),
             None => {
-                let _ = multi.println(format!(
-                    "Warning: No state entry for {}. Build it first.",
-                    name
-                ));
+                let _ = multi.println(format!("Warning: {} not tracked; build it first.", name));
                 continue;
             }
         };
@@ -141,9 +138,6 @@ pub async fn run_export(
         bail!("Exporting completed with errors.");
     }
 
-    println!(
-        "{} images were successfully exported in OCI format.",
-        exported_count
-    );
+    println!("Exported {} images.", exported_count);
     Ok(())
 }

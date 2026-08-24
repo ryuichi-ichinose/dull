@@ -22,7 +22,7 @@ pub async fn run_rmi(engine: &BuildahEngine, mut ctx: ProjectContext, args: RmiA
         match ctx.state.images.get(name) {
             Some(reference) => tags.push(reference.to_tag_string()),
             None => {
-                println!("Warning: No state entry for {}. Skipping.", name);
+                println!("Warning: {} not tracked; skipping.", name);
             }
         }
     }
@@ -58,7 +58,7 @@ async fn run_clean(engine: &BuildahEngine, mut ctx: ProjectContext) -> Result<()
     ctx.state = DullState::default();
     save_state(&ctx)?;
 
-    println!("Clean completed.");
+    println!("Cleaned.");
     Ok(())
 }
 
@@ -141,6 +141,6 @@ async fn run_gc(
         println!("- Removed: {}", &naked_id[..12.min(naked_id.len())]);
     }
 
-    println!("Garbage collection complete.");
+    println!("Garbage collected.");
     Ok(())
 }

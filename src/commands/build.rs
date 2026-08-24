@@ -164,6 +164,7 @@ pub async fn run_build(
         );
     }
 
+    let total_count = task_futures.len();
     let mut failed_names: Vec<String> = Vec::new();
     for (name, fut) in task_futures {
         match fut.await {
@@ -206,10 +207,7 @@ pub async fn run_build(
         bail!("Build completed with errors.");
     }
 
-    println!(
-        "Successfully updated {}",
-        ctx.paths.state_file.to_string_lossy()
-    );
+    println!("Built {} images.", total_count - failed_names.len());
 
     Ok(())
 }

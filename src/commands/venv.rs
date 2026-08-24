@@ -48,10 +48,7 @@ pub fn run_venv(args: VenvArgs) -> Result<()> {
 
         if is_selinux_enabled() {
             let storage_path = paths.storage_dir.display();
-            println!("WARNING: The SELinux label applied to the storage directory is temporary.");
-            println!(
-                "To ensure it survives a filesystem relabel (restorecon), register it permanently:"
-            );
+            println!("Warning: SELinux label is temporary. To persist across relabels:");
             println!(
                 "  sudo semanage fcontext -a -t container_var_lib_t '{}(/.*)?'",
                 storage_path

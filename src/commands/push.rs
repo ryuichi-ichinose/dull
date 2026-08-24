@@ -127,10 +127,7 @@ pub async fn run_push(
         let local_reference = match ctx.state.images.get(&name) {
             Some(info) => info.clone(),
             None => {
-                let _ = multi.println(format!(
-                    "Warning: No state entry for {}. Build it first.",
-                    name
-                ));
+                let _ = multi.println(format!("Warning: {} not tracked; build it first.", name));
                 continue;
             }
         };
@@ -138,10 +135,7 @@ pub async fn run_push(
         let target_tag = match args.tag.clone().or_else(|| local_reference.tag.clone()) {
             Some(tag) => tag,
             None => {
-                let _ = multi.println(format!(
-                    "Warning: No tag specified or found in build state for {}. Push aborted.",
-                    name
-                ));
+                let _ = multi.println(format!("Warning: {} has no tag; skipping.", name));
                 continue;
             }
         };
@@ -205,6 +199,6 @@ pub async fn run_push(
         bail!("Pushing completed with errors.");
     }
 
-    println!("{} images were successfully pushed.", pushed_count);
+    println!("Pushed {} images.", pushed_count);
     Ok(())
 }
