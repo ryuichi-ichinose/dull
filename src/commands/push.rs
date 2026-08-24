@@ -2,6 +2,7 @@ use crate::cli::PushArgs;
 use crate::config::ProjectContext;
 use crate::engine::SkopeoEngine;
 use crate::image_reference::ImageReference;
+use crate::output::multi_println;
 use anyhow::{Context, Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::path::Path;
@@ -65,7 +66,7 @@ async fn push_single_image(
             Ok(name)
         }
         Err(e) => {
-            let _ = multi.println(format!("Error pushing {}:\n{}", name, e));
+            multi_println(&multi, format!("Error pushing {}:\n{}", name, e));
             pb.abandon_with_message(format!("{} failed", name));
             Err(e)
         }
@@ -127,7 +128,10 @@ pub async fn run_push(
         let local_reference = match ctx.state.images.get(&name) {
             Some(info) => info.clone(),
             None => {
-                let _ = multi.println(format!("Warning: {} not tracked; build it first.", name));
+                multi_println(
+                    &multi,
+                    format!("Warning: {} not tracked; build it first.", name),
+                );
                 continue;
             }
         };
@@ -135,7 +139,7 @@ pub async fn run_push(
         let target_tag = match args.tag.clone().or_else(|| local_reference.tag.clone()) {
             Some(tag) => tag,
             None => {
-                let _ = multi.println(format!("Warning: {} has no tag; skipping.", name));
+                multi_println(&multi, format!("Warning: {} has no tag; skipping.", name));
                 continue;
             }
         };

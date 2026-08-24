@@ -4,6 +4,7 @@ use crate::cli::{BuildArgs, LogsMode};
 use crate::config::{ProjectContext, save_state};
 use crate::engine::{BuildOptions, BuildahEngine};
 use crate::image_reference::ImageReference;
+use crate::output::multi_println;
 use anyhow::{Context, Result, bail};
 use futures::future::{FutureExt, Shared};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -148,7 +149,7 @@ pub async fn run_build(
                     Ok(completed_ref)
                 }
                 Err(e) => {
-                    let _ = multi.println(format!("Error building {}:\n{}", reference.name, e));
+                    multi_println(&multi, format!("Error building {}:\n{}", reference.name, e));
                     pb.abandon_with_message(format!("{} failed", reference.name));
                     Err(e.to_string())
                 }

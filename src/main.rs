@@ -5,6 +5,7 @@ mod commands;
 mod config;
 mod engine;
 mod image_reference;
+mod output;
 
 use crate::cli::{Cli, Commands};
 use crate::engine::{BuildahEngine, SkopeoEngine};

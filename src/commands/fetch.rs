@@ -2,6 +2,7 @@ use crate::cli::FetchArgs;
 use crate::config::ProjectContext;
 use crate::engine::SkopeoEngine;
 use crate::image_reference::{ImageReference, shorten_digest};
+use crate::output::multi_println;
 use anyhow::{Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::sync::Arc;
@@ -38,7 +39,7 @@ async fn fetch_single_image(
             Ok(())
         }
         Err(e) => {
-            let _ = multi.println(format!("Error fetching {}:\n{}", name, e));
+            multi_println(&multi, format!("Error fetching {}:\n{}", name, e));
             pb.abandon_with_message(format!("{} failed", name));
             Err(e)
         }

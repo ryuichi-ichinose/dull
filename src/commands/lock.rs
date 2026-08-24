@@ -2,6 +2,7 @@ use crate::cli::LockArgs;
 use crate::config::{ProjectContext, save_lock};
 use crate::engine::SkopeoEngine;
 use crate::image_reference::{ImageReference, parse_oci_reference, shorten_digest};
+use crate::output::multi_println;
 use anyhow::{Context, Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::BTreeMap;
@@ -34,12 +35,12 @@ async fn lock_single_image(
             Ok((reference_str, inspected))
         }
         Ok(None) => {
-            let _ = multi.println(format!("Error: Image not found: {}", reference_str));
+            multi_println(&multi, format!("Error: Image not found: {}", reference_str));
             pb.abandon_with_message(format!("{} not found", reference.to_tag_string()));
             Err(anyhow::anyhow!("Image not found: {}", reference_str))
         }
         Err(e) => {
-            let _ = multi.println(format!("Error locking {}:\n{}", reference_str, e));
+            multi_println(&multi, format!("Error locking {}:\n{}", reference_str, e));
             pb.abandon_with_message(format!("{} failed", reference.to_tag_string()));
             Err(e)
         }
