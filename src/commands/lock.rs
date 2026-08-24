@@ -51,13 +51,24 @@ pub async fn run_lock(
     mut ctx: ProjectContext,
     args: LockArgs,
 ) -> Result<()> {
-    let initial_lock_count = ctx.lock.images.len();
-    ctx.lock
-        .images
-        .retain(|k, _| ctx.config.dependencies.contains(k));
-    let pruned_count = initial_lock_count - ctx.lock.images.len();
+    let mut pruned: Vec<(String, Option<String>)> = Vec::new();
+    ctx.lock.images.retain(|k, v| {
+        let keep = ctx.config.dependencies.contains(k);
+        if !keep {
+            pruned.push((k.clone(), v.digest.clone()));
+        }
+        keep
+    });
+    let pruned_count = pruned.len();
 
     if pruned_count > 0 {
+        for (name, digest) in &pruned {
+            println!(
+                "- {} removed (was locked at {})",
+                name,
+                digest.as_deref().map(shorten_digest).unwrap_or("-")
+            );
+        }
         println!("Pruned {} stale dependencies from lockfile.", pruned_count);
     }
 
