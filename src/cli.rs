@@ -118,6 +118,8 @@ pub struct BuildArgs {
     pub jobs: Option<usize>,
     #[arg(long, value_enum)]
     pub logs: Option<LogsMode>,
+    #[arg(long)]
+    pub keep_going: bool,
 }
 
 #[derive(Args)]

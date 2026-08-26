@@ -10,10 +10,12 @@ use futures::future::{FutureExt, Shared};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Semaphore;
+use tokio::task::AbortHandle;
 
 type SharedTaskFuture = Shared<futures::future::BoxFuture<'static, Result<ImageReference, String>>>;
 
@@ -62,6 +64,9 @@ pub async fn run_build(
 
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let multi = Arc::new(MultiProgress::new());
+    let abort_handles: Arc<Mutex<Vec<AbortHandle>>> = Arc::new(Mutex::new(Vec::new()));
+    let aborting = Arc::new(AtomicBool::new(false));
+    let keep_going = args.keep_going;
     let mut task_futures: HashMap<String, SharedTaskFuture> = HashMap::new();
     let mut log_paths: HashMap<String, PathBuf> = HashMap::new();
 
@@ -89,6 +94,8 @@ pub async fn run_build(
         let engine = Arc::clone(&engine);
         let semaphore = Arc::clone(&semaphore);
         let multi = Arc::clone(&multi);
+        let abort_handles_for_task = Arc::clone(&abort_handles);
+        let aborting = Arc::clone(&aborting);
         let root = base_root.clone();
 
         let dep_futures: Vec<_> = task
@@ -149,12 +156,26 @@ pub async fn run_build(
                     Ok(completed_ref)
                 }
                 Err(e) => {
+                    if !keep_going && !aborting.swap(true, Ordering::SeqCst) {
+                        multi_println(
+                            &multi,
+                            "Aborting remaining builds due to an earlier failure...",
+                        );
+                        for handle in abort_handles_for_task.lock().unwrap().iter() {
+                            handle.abort();
+                        }
+                    }
                     multi_println(&multi, format!("Error building {}:\n{}", reference.name, e));
                     pb.abandon_with_message(format!("{} failed", reference.name));
                     Err(e.to_string())
                 }
             }
         });
+
+        abort_handles
+            .lock()
+            .unwrap()
+            .push(task_future.abort_handle());
 
         task_futures.insert(
             name_key,
