@@ -17,8 +17,8 @@ fn apply_selinux_label(path: &Path) -> Result<()> {
 
     let label = b"system_u:object_r:container_var_lib_t:s0";
     if let Err(e) = xattr::set(path, "security.selinux", label) {
-        // ENOTSUP (95) / ENODATA (61): xattr unsupported on this filesystem.
-        if e.raw_os_error() == Some(95) || e.raw_os_error() == Some(61) {
+        // ENOTSUP/EOPNOTSUPP (95): xattrs unsupported or disabled on this filesystem.
+        if e.raw_os_error() == Some(95) {
             return Ok(());
         }
         return Err(e.into());
