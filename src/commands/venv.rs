@@ -17,7 +17,7 @@ fn apply_selinux_label(path: &Path) -> Result<()> {
 
     let label = b"system_u:object_r:container_var_lib_t:s0";
     if let Err(e) = xattr::set(path, "security.selinux", label) {
-        // Ignore ENOTSUP or other SELinux-related issues if not supported
+        // ENOTSUP (95) / ENODATA (61): xattr unsupported on this filesystem.
         if e.raw_os_error() == Some(95) || e.raw_os_error() == Some(61) {
             return Ok(());
         }
@@ -91,7 +91,6 @@ pub fn run_venv(args: VenvArgs) -> Result<()> {
         println!("Initialized .dull/storage.conf");
     }
 
-    // Self-contained ignore rule
     let gitignore_path = paths.dull_dir.join(".gitignore");
     fs::write(&gitignore_path, "*\n")?;
 

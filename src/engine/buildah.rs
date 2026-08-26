@@ -54,7 +54,6 @@ impl BuildahEngine {
         Ok(Self { ctx })
     }
 
-    /// Core helper to ensure isolation: Injects necessary environment variables for Tokio commands
     pub fn command(&self, subcmd: &str) -> TokioCommand {
         let mut cmd = TokioCommand::new("buildah");
         cmd.env("CONTAINERS_STORAGE_CONF", &self.ctx.paths.storage_conf)
@@ -213,7 +212,6 @@ impl BuildahEngine {
         Ok(serde_json::from_str(stdout_str)?)
     }
 
-    /// Analyzes local storage against active references and destroys garbage
     pub async fn gc(
         &self,
         active_hashes: &HashSet<String>,
@@ -246,7 +244,7 @@ impl BuildahEngine {
             }
         }
 
-        // Phase 1: Untag
+        // Untag first, then remove the now-unreferenced IDs.
         if !garbage_tags.is_empty() {
             let mut cmd = self.command("rmi");
             cmd.args(&garbage_tags);
@@ -258,7 +256,6 @@ impl BuildahEngine {
             child.wait().await?;
         }
 
-        // Phase 2: Remove IDs
         if !garbage_ids.is_empty() {
             let mut cmd = self.command("rmi");
             cmd.arg("-f").args(&garbage_ids);
@@ -276,7 +273,6 @@ impl BuildahEngine {
         })
     }
 
-    /// Physically obliterates all images in the isolated container storage
     pub async fn clean(&self) -> Result<()> {
         let mut cmd = self.command("rmi");
         cmd.arg("-a").arg("-f");
@@ -293,7 +289,6 @@ impl BuildahEngine {
         Ok(())
     }
 
-    /// Removes specific images by tag from the isolated container storage
     pub async fn remove_images(&self, tags: &[String]) -> Result<()> {
         let mut cmd = self.command("rmi");
         cmd.args(tags);
@@ -302,7 +297,7 @@ impl BuildahEngine {
         Ok(())
     }
 
-    /// Overwrites the current process with an interactive shell configured for the isolated environment
+    /// exec()-based; never returns on success.
     pub fn shell(&self, project_name: &str) -> Result<()> {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
         let mut cmd = self.std_command(&shell);

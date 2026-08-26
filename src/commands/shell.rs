@@ -12,6 +12,6 @@ pub fn run_shell(engine: &BuildahEngine, ctx: ProjectContext) -> Result<()> {
 
     println!("Entering dull shell for project: {}", project_name);
 
-    // Delegate process replacement to the engine. Will not return.
+    // exec()-based; never returns on success.
     engine.shell(project_name)
 }

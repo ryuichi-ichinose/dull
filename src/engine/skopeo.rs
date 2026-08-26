@@ -121,16 +121,8 @@ impl SkopeoEngine {
         cmd.args(["--digestfile", digest_path, &src_str, &dest_str]);
 
         if interactive {
-            // TODO: pinentry normally talks to the controlling terminal
-            // directly (via --ttyname), independent of our own stdio, so
-            // this mostly doesn't matter for the common case. It matters
-            // when there's no pinentry in the loop at all: gpg-agent
-            // configured for loopback pinentry (allow-loopback-pinentry)
-            // reads the passphrase from gpg's own stdin instead, which needs
-            // to be the real terminal. Also lets non-signing push errors
-            // show up live instead of only after the fact via captured
-            // stderr. GPG/pinentry interaction is complex enough that this
-            // deserves a closer look if signing issues come up again.
+            // Needed for loopback-pinentry setups, where gpg-agent reads the
+            // passphrase from our own stdin instead of talking to a pinentry.
             let mut child = cmd
                 .stdin(Stdio::inherit())
                 .stdout(Stdio::inherit())

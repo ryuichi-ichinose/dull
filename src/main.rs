@@ -17,25 +17,21 @@ use std::sync::Arc;
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Context-less boundary
-    // `init` creates the initial dull.toml, so it runs completely independent of context.
+    // `init` creates dull.toml itself, so it must run before any context exists.
     if let Commands::Init = cli.command {
         return commands::init::run_init();
     }
 
     let ctx = config::load_project_context()?;
 
-    // Dispatch to subcommands
     match cli.command {
         Commands::Init => unreachable!(),
         Commands::Venv(args) => commands::venv::run_venv(args),
 
-        // Context-only boundary
+        // Don't need the .dull/ engine environment, just the config.
         Commands::Scan(args) => commands::scan::run_scan(ctx, args),
         Commands::Registry(args) => commands::registry::run_registry(ctx, args.action),
 
-        // Engine-required boundary
-        // All other commands require the physical .dull/ environment to be fully initialized.
         cmd => {
             let buildah_engine = Arc::new(BuildahEngine::new(ctx.clone())?);
             let skopeo_engine = Arc::new(SkopeoEngine::new(ctx.clone())?);

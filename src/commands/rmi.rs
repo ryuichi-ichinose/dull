@@ -52,7 +52,6 @@ async fn run_clean(engine: &BuildahEngine, mut ctx: ProjectContext) -> Result<()
     }
 
     println!("Cleaning up containers and images in project storage...");
-    // Delegate physical destruction to the engine
     engine.clean().await?;
 
     ctx.state = DullState::default();

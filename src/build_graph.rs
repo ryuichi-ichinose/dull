@@ -36,7 +36,7 @@ pub fn compute_plan(config: &DullConfig, targets: &BTreeSet<String>) -> Result<B
         }
     }
 
-    // Identify all required nodes for the given targets
+    // DFS on the reversed graph walks each target's dependencies.
     let mut build_selection = BTreeSet::new();
     let mut reversed = graph.clone();
     reversed.reverse();
@@ -51,7 +51,6 @@ pub fn compute_plan(config: &DullConfig, targets: &BTreeSet<String>) -> Result<B
         }
     }
 
-    // Get a topologically sorted order of ALL images first
     let sorted_indices = toposort(&graph, None).map_err(|cycle| {
         anyhow::anyhow!(
             "Circular dependency detected involving: {}",
@@ -59,15 +58,13 @@ pub fn compute_plan(config: &DullConfig, targets: &BTreeSet<String>) -> Result<B
         )
     })?;
 
-    // Create tasks in topological order
     let tasks = sorted_indices
         .into_iter()
         .filter(|&i| build_selection.contains(&graph[i]))
         .map(|i| {
             let name = graph[i].clone();
             let profile = config.images[&name].clone();
-            // Immediate dependencies are the graph's predecessors, filtered
-            // to only include those that are also in the plan.
+            // Predecessors = dependencies; keep only ones also in this plan.
             let dependencies = graph
                 .neighbors_directed(i, Direction::Incoming)
                 .map(|dep_idx| graph[dep_idx].clone())

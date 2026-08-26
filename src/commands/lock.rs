@@ -212,14 +212,8 @@ pub async fn run_lock(
 
                 ctx.lock.images.insert(ref_str, locked_ref);
             }
-            Ok(Err(_)) => {
-                // Skopeo execution failed
-                failed = true;
-            }
-            Err(_) => {
-                // Tokio task panicked or was cancelled
-                failed = true;
-            }
+            Ok(Err(_)) => failed = true, // skopeo failed
+            Err(_) => failed = true,     // task panicked/cancelled
         }
     }
 

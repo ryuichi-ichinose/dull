@@ -125,14 +125,8 @@ pub async fn run_export(
             Ok(Ok(_)) => {
                 exported_count += 1;
             }
-            Ok(Err(_)) => {
-                // Skopeo execution failed
-                failed = true;
-            }
-            Err(_) => {
-                // Tokio task panicked or was cancelled
-                failed = true;
-            }
+            Ok(Err(_)) => failed = true, // skopeo failed
+            Err(_) => failed = true,     // task panicked/cancelled
         }
     }
 

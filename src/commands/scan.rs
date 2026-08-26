@@ -12,7 +12,6 @@ fn is_valid_image_name(name: &str) -> bool {
     // OCI repository name spec: [a-z0-9]+([._-/][a-z0-9]+)*
     let mut chars = name.chars();
 
-    // First char must be alphanumeric lowercase
     if let Some(first) = chars.next()
         && !first.is_ascii_lowercase()
         && !first.is_ascii_digit()
@@ -79,7 +78,6 @@ pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
         let path = entry.path();
         let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-        // Extract prefix or suffix from the filename
         let file_ext = if fname == "Dockerfile" || fname == "Containerfile" {
             ""
         } else if let Some(prefix) = fname.strip_suffix(".Dockerfile") {
@@ -112,12 +110,10 @@ pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
                 .unwrap_or("root")
                 .to_string()
         } else {
-            // Replace path separators with '/' instead of '-'
             context_path.replace(std::path::MAIN_SEPARATOR, "/")
         };
 
         if !file_ext.is_empty() {
-            // Always append the extracted string to the end
             base_name = format!("{}-{}", base_name, file_ext);
         }
 
