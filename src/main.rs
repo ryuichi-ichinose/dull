@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
 
             match cmd {
                 Commands::Login(args) => {
-                    commands::login::run_login(&skopeo_engine.as_ref(), ctx, args).await
+                    commands::login::run_login(skopeo_engine.as_ref(), ctx, args).await
                 }
                 Commands::Lock(args) => commands::lock::run_lock(skopeo_engine, ctx, args).await,
                 Commands::Fetch(args) => commands::fetch::run_fetch(skopeo_engine, ctx, args).await,

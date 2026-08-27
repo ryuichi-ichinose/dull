@@ -83,7 +83,7 @@ pub async fn run_lock(
     }
     let mut parsed_deps = BTreeMap::new();
     for dep_str in &ctx.config.dependencies {
-        let mut reference = parse_oci_reference(dep_str)
+        let reference = parse_oci_reference(dep_str)
             .with_context(|| format!("Failed to parse dependency: {}", dep_str))?;
 
         if reference.registry.is_none() {

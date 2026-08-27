@@ -84,10 +84,7 @@ pub async fn run_build(
             digest: None,
         };
 
-        let safe_tag_name = reference
-            .to_tag_string()
-            .replace('/', "_")
-            .replace(':', "_");
+        let safe_tag_name = reference.to_tag_string().replace(['/', ':'], "_");
         let log_path = session_log_dir.join(format!("{}.log", safe_tag_name));
         log_paths.insert(name.clone(), log_path.clone());
 

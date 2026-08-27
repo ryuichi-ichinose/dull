@@ -117,7 +117,7 @@ pub fn run_venv(args: VenvArgs) -> Result<()> {
             writeln!(file)?;
         }
 
-        write!(file, ".dull\n")?;
+        writeln!(file, ".dull")?;
     }
     Ok(())
 }

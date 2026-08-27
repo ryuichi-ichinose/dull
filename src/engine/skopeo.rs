@@ -86,6 +86,7 @@ impl SkopeoEngine {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn push(
         &self,
         source: &ImageReference,

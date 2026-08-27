@@ -97,10 +97,7 @@ pub async fn run_export(
         let semaphore_clone = Arc::clone(&semaphore);
         let name_clone = name.clone();
 
-        let safe_dir_name = local_reference
-            .to_tag_string()
-            .replace('/', "_")
-            .replace(':', "_");
+        let safe_dir_name = local_reference.to_tag_string().replace(['/', ':'], "_");
 
         let output_dir = base_dir.join(&safe_dir_name);
 
