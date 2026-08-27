@@ -148,6 +148,7 @@ pub async fn run_build(
                 dockerfile_path: &root.join(&profile.path),
                 context_dir: &root.join(&profile.context),
                 build_args: &profile.args,
+                secrets: &profile.secrets,
             };
 
             match engine.build(&reference, opts, Some(log_tx)).await {

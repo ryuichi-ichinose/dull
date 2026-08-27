@@ -1,4 +1,4 @@
-use crate::config::ProjectContext;
+use crate::config::{ProjectContext, SecretSource};
 use crate::engine::{ProcessGroupGuard, run_checked};
 use crate::image_reference::ImageReference;
 use anyhow::{Context, Result, bail};
@@ -18,6 +18,7 @@ pub struct BuildOptions<'a> {
     pub dockerfile_path: &'a Path,
     pub context_dir: &'a Path,
     pub build_args: &'a std::collections::BTreeMap<String, String>,
+    pub secrets: &'a std::collections::BTreeMap<String, SecretSource>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -111,6 +112,17 @@ impl BuildahEngine {
 
         for (k, v) in opts.build_args {
             cmd.arg("--build-arg").arg(format!("{}={}", k, v));
+        }
+
+        for (id, source) in opts.secrets {
+            let spec = match source {
+                SecretSource::Env { env } => format!("id={},env={}", id, env),
+                SecretSource::File { file } => {
+                    let path = self.ctx.paths.root.join(file);
+                    format!("id={},src={},type=file", id, path.display())
+                }
+            };
+            cmd.arg("--secret").arg(spec);
         }
 
         let mut child = cmd

@@ -141,6 +141,7 @@ pub fn run_scan(mut ctx: ProjectContext, args: ScanArgs) -> Result<()> {
             local_tag: "latest".to_string(),
             context: context_str,
             args: BTreeMap::new(),
+            secrets: BTreeMap::new(),
         };
 
         if let Some(existing) = disk_images.insert(name.clone(), profile.clone()) {

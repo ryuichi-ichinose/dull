@@ -25,6 +25,15 @@ pub struct ImageProfile {
     pub context: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub args: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub secrets: BTreeMap<String, SecretSource>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum SecretSource {
+    Env { env: String },
+    File { file: String },
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
