@@ -1,8 +1,8 @@
 use crate::cli::FetchArgs;
 use crate::config::ProjectContext;
 use crate::engine::SkopeoEngine;
-use crate::image_reference::{ImageReference, shorten_digest};
-use crate::output::multi_println;
+use crate::image_reference::ImageReference;
+use crate::output::{self, multi_println};
 use anyhow::{Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::sync::Arc;
@@ -16,7 +16,7 @@ async fn fetch_single_image(
     name: String,
     reference: ImageReference,
     is_insecure: bool,
-) -> Result<()> {
+) -> Result<String> {
     let _permit = semaphore.acquire().await.map_err(|e| anyhow::anyhow!(e))?;
 
     let pb = multi.add(ProgressBar::new_spinner());
@@ -30,13 +30,12 @@ async fn fetch_single_image(
 
     match engine.fetch(&reference, is_insecure).await {
         Ok(digest) => {
-            pb.finish_with_message(format!(
-                "{} fetched ({}@{})",
-                name,
-                reference.to_tag_string(),
-                shorten_digest(&digest)
-            ));
-            Ok(())
+            pb.finish_with_message(format!("{} fetched", name));
+
+            let mut canonical = reference.clone();
+            canonical.tag = None;
+            canonical.digest = Some(digest);
+            Ok(canonical.to_canonical_string())
         }
         Err(e) => {
             multi_println(&multi, format!("Error fetching {}:\n{}", name, e));
@@ -77,7 +76,15 @@ pub async fn run_fetch(
     }
 
     let fetch_count = to_fetch.len();
-    println!("Fetching {} dependencies...", fetch_count);
+    println!(
+        "Fetching {} dependencies: {}",
+        fetch_count,
+        to_fetch
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
 
     let concurrency = std::thread::available_parallelism().map_or(4, |n| n.get());
     let semaphore = Arc::new(Semaphore::new(concurrency));
@@ -90,33 +97,49 @@ pub async fn run_fetch(
         let multi_clone = Arc::clone(&multi);
         let is_insecure = args.insecure;
 
-        handles.push(tokio::spawn(async move {
-            fetch_single_image(
-                engine_clone,
-                multi_clone,
-                semaphore_clone,
-                name,
-                reference,
-                is_insecure,
-            )
-            .await
-        }));
+        let name_for_result = name.clone();
+        handles.push((
+            name_for_result,
+            tokio::spawn(async move {
+                fetch_single_image(
+                    engine_clone,
+                    multi_clone,
+                    semaphore_clone,
+                    name,
+                    reference,
+                    is_insecure,
+                )
+                .await
+            }),
+        ));
     }
 
-    let mut errors = false;
-    for handle in handles {
+    let mut successes: Vec<String> = Vec::new();
+    let mut failed_names: Vec<String> = Vec::new();
+
+    for (name, handle) in handles {
         match handle.await {
-            Ok(Ok(_)) => {}
-            _ => errors = true,
+            Ok(Ok(msg)) => successes.push(msg),
+            _ => failed_names.push(name),
         }
     }
 
-    if errors {
+    output::finish_multi(multi);
+
+    successes.sort();
+    for msg in &successes {
+        println!("+ {}", msg);
+    }
+    failed_names.sort();
+    for name in &failed_names {
+        println!("- {} failed", name);
+    }
+
+    if !failed_names.is_empty() {
         bail!("Fetching completed with errors.");
     }
 
-    drop(multi);
-    println!("Fetched {} dependencies.", fetch_count);
+    println!("Fetched {} dependencies.", successes.len());
 
     Ok(())
 }

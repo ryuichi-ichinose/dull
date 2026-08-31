@@ -2,7 +2,7 @@ use crate::cli::PushArgs;
 use crate::config::ProjectContext;
 use crate::engine::SkopeoEngine;
 use crate::image_reference::ImageReference;
-use crate::output::multi_println;
+use crate::output::{self, multi_println};
 use anyhow::{Context, Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::path::Path;
@@ -23,7 +23,7 @@ async fn push_single_image(
     sign_by_sigstore_private_key: Option<&Path>,
     sign_passphrase_file: Option<&Path>,
     interactive: bool,
-) -> Result<String> {
+) -> Result<(String, String)> {
     let _permit = semaphore.acquire().await.expect("Semaphore closed");
 
     let pb = multi.add(ProgressBar::new_spinner());
@@ -62,8 +62,8 @@ async fn push_single_image(
         Ok(_) => {
             let local_str = local_reference.to_tag_string();
             let dest_str = dest_reference.to_tag_string();
-            pb.finish_with_message(format!("{} → {}", local_str, dest_str));
-            Ok(name)
+            pb.finish_with_message(format!("{} -> {}", local_str, dest_str));
+            Ok((local_str, dest_str))
         }
         Err(e) => {
             multi_println(&multi, format!("Error pushing {}:\n{}", name, e));
@@ -98,9 +98,10 @@ pub async fn run_push(
     }
 
     println!(
-        "Pushing {} images to {}...",
+        "Pushing {} images to {}: {}",
         target_names.len(),
-        registry_base
+        registry_base,
+        target_names.join(", ")
     );
 
     let requires_interactive_prompt = (args.sign_by.is_some()
@@ -160,49 +161,54 @@ pub async fn run_push(
         let sign_by_sigstore_private_key_clone = args.sign_by_sigstore_private_key.clone();
         let sign_passphrase_file_clone = args.sign_passphrase_file.clone();
 
-        handles.push(tokio::spawn(async move {
-            push_single_image(
-                engine_clone,
-                multi_clone,
-                semaphore_clone,
-                local_reference,
-                dest_reference,
-                name_clone,
-                is_insecure,
-                sign_by_clone.as_deref(),
-                sign_by_sigstore_private_key_clone.as_deref(),
-                sign_passphrase_file_clone.as_deref(),
-                requires_interactive_prompt,
-            )
-            .await
-        }));
+        let name_for_result = name.clone();
+        handles.push((
+            name_for_result,
+            tokio::spawn(async move {
+                push_single_image(
+                    engine_clone,
+                    multi_clone,
+                    semaphore_clone,
+                    local_reference,
+                    dest_reference,
+                    name_clone,
+                    is_insecure,
+                    sign_by_clone.as_deref(),
+                    sign_by_sigstore_private_key_clone.as_deref(),
+                    sign_passphrase_file_clone.as_deref(),
+                    requires_interactive_prompt,
+                )
+                .await
+            }),
+        ));
     }
 
-    let mut pushed_count = 0;
-    let mut failed = false;
+    let mut successes: Vec<(String, String)> = Vec::new();
+    let mut failed_names: Vec<String> = Vec::new();
 
-    for handle in handles {
+    for (name, handle) in handles {
         match handle.await {
-            Ok(Ok(_)) => {
-                pushed_count += 1;
-            }
-            Ok(Err(_)) => {
-                // Skopeo execution failed
-                failed = true;
-            }
-            Err(_) => {
-                // Tokio task panicked or was cancelled
-                failed = true;
-            }
+            Ok(Ok((local_str, dest_str))) => successes.push((local_str, dest_str)),
+            Ok(Err(_)) => failed_names.push(name), // skopeo failed
+            Err(_) => failed_names.push(name),     // task panicked/cancelled
         }
     }
 
-    drop(multi);
+    output::finish_multi(multi);
 
-    if failed {
+    successes.sort();
+    for (local_str, dest_str) in &successes {
+        println!("+ {} -> {}", local_str, dest_str);
+    }
+    failed_names.sort();
+    for name in &failed_names {
+        println!("- {} failed", name);
+    }
+
+    if !failed_names.is_empty() {
         bail!("Pushing completed with errors.");
     }
 
-    println!("Pushed {} images.", pushed_count);
+    println!("Pushed {} images.", successes.len());
     Ok(())
 }

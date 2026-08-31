@@ -1,8 +1,8 @@
 use crate::cli::LockArgs;
 use crate::config::{ProjectContext, save_lock};
 use crate::engine::SkopeoEngine;
-use crate::image_reference::{ImageReference, parse_oci_reference, shorten_digest};
-use crate::output::multi_println;
+use crate::image_reference::{ImageReference, parse_oci_reference};
+use crate::output::{self, multi_println};
 use anyhow::{Context, Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::BTreeMap;
@@ -65,9 +65,9 @@ pub async fn run_lock(
     if pruned_count > 0 {
         for (name, digest) in &pruned {
             println!(
-                "- {} removed (was locked at {})",
+                "- {} removed (was locked at manifest-list digest {})",
                 name,
-                digest.as_deref().map(shorten_digest).unwrap_or("-")
+                digest.as_deref().unwrap_or("-")
             );
         }
         println!("Pruned {} stale dependencies from lockfile.", pruned_count);
@@ -157,7 +157,15 @@ pub async fn run_lock(
         return Ok(());
     }
 
-    println!("Locking {} dependencies...", to_resolve.len());
+    println!(
+        "Locking {} dependencies: {}",
+        to_resolve.len(),
+        to_resolve
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
 
     let concurrency = std::thread::available_parallelism().map_or(4, |n| n.get());
     let semaphore = Arc::new(Semaphore::new(concurrency));
@@ -170,24 +178,28 @@ pub async fn run_lock(
         let engine_clone = Arc::clone(&engine);
         let multi_clone = Arc::clone(&multi);
         let is_insecure = args.insecure;
+        let name_for_result = reference_str.clone();
 
-        handles.push(tokio::spawn(async move {
-            lock_single_image(
-                engine_clone,
-                multi_clone,
-                semaphore_clone,
-                reference_str,
-                reference,
-                is_insecure,
-            )
-            .await
-        }));
+        handles.push((
+            name_for_result,
+            tokio::spawn(async move {
+                lock_single_image(
+                    engine_clone,
+                    multi_clone,
+                    semaphore_clone,
+                    reference_str,
+                    reference,
+                    is_insecure,
+                )
+                .await
+            }),
+        ));
     }
 
-    let mut failed = false;
+    let mut failed_names: Vec<String> = Vec::new();
     let mut changes = Vec::new();
 
-    for handle in handles {
+    for (name, handle) in handles {
         match handle.await {
             Ok(Ok((ref_str, locked_ref))) => {
                 let old_digest = old_digests.get(&ref_str).cloned().flatten();
@@ -195,16 +207,16 @@ pub async fn run_lock(
 
                 match old_digest {
                     None => changes.push(format!(
-                        "+ {} locked at {}",
+                        "+ {} locked at manifest-list digest {}",
                         ref_str,
-                        new_digest.as_deref().map(shorten_digest).unwrap_or("-")
+                        new_digest.as_deref().unwrap_or("-")
                     )),
                     Some(old) if Some(old.as_str()) != new_digest.as_deref() => {
                         changes.push(format!(
-                            "~ {} {} -> {}",
+                            "~ {} locked at manifest-list digest {} (was {})",
                             ref_str,
-                            shorten_digest(&old),
-                            new_digest.as_deref().map(shorten_digest).unwrap_or("-")
+                            new_digest.as_deref().unwrap_or("-"),
+                            old
                         ));
                     }
                     _ => {}
@@ -212,19 +224,16 @@ pub async fn run_lock(
 
                 ctx.lock.images.insert(ref_str, locked_ref);
             }
-            Ok(Err(_)) => failed = true, // skopeo failed
-            Err(_) => failed = true,     // task panicked/cancelled
+            Ok(Err(_)) => failed_names.push(name), // skopeo failed
+            Err(_) => failed_names.push(name),     // task panicked/cancelled
         }
     }
 
-    drop(multi);
-
-    if failed {
-        bail!("Locking completed with errors.");
-    }
+    output::finish_multi(multi);
 
     save_lock(&ctx)?;
 
+    changes.sort();
     if changes.is_empty() {
         println!("No digest changes.");
     } else {
@@ -232,8 +241,16 @@ pub async fn run_lock(
             println!("{}", change);
         }
     }
+    failed_names.sort();
+    for name in &failed_names {
+        println!("- {} failed", name);
+    }
 
     println!("Lock file updated.");
+
+    if !failed_names.is_empty() {
+        bail!("Locking completed with errors.");
+    }
 
     Ok(())
 }

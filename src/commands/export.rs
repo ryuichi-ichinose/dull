@@ -2,7 +2,7 @@ use crate::cli::ExportArgs;
 use crate::config::ProjectContext;
 use crate::engine::SkopeoEngine;
 use crate::image_reference::ImageReference;
-use crate::output::multi_println;
+use crate::output::{self, multi_println};
 use anyhow::{Context, Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::path::PathBuf;
@@ -17,7 +17,7 @@ async fn export_single_image(
     local_reference: ImageReference,
     name: String,
     output_dir: PathBuf,
-) -> Result<String> {
+) -> Result<(String, String)> {
     let _permit = semaphore.acquire().await.expect("Semaphore closed");
 
     let pb = multi.add(ProgressBar::new_spinner());
@@ -32,8 +32,10 @@ async fn export_single_image(
 
     match engine.export_to_oci(&local_reference, &output_dir).await {
         Ok(_) => {
-            pb.finish_with_message(format!("{} exported", local_reference.to_tag_string(),));
-            Ok(name)
+            let local_str = local_reference.to_tag_string();
+            let output_path = output_dir.display().to_string();
+            pb.finish_with_message(format!("{} exported", local_str));
+            Ok((local_str, output_path))
         }
         Err(e) => {
             multi_println(&multi, format!("Error exporting {}:\n{}", name, e));
@@ -69,9 +71,10 @@ pub async fn run_export(
     }
 
     println!(
-        "Exporting {} images to {}...",
+        "Exporting {} images to {}: {}",
         target_names.len(),
-        base_dir.display()
+        base_dir.display(),
+        target_names.join(", ")
     );
 
     let concurrency = std::thread::available_parallelism().map_or(4, |n| n.get());
@@ -101,38 +104,49 @@ pub async fn run_export(
 
         let output_dir = base_dir.join(&safe_dir_name);
 
-        handles.push(tokio::spawn(async move {
-            export_single_image(
-                engine_clone,
-                multi_clone,
-                semaphore_clone,
-                local_reference,
-                name_clone,
-                output_dir,
-            )
-            .await
-        }));
+        let name_for_result = name.clone();
+        handles.push((
+            name_for_result,
+            tokio::spawn(async move {
+                export_single_image(
+                    engine_clone,
+                    multi_clone,
+                    semaphore_clone,
+                    local_reference,
+                    name_clone,
+                    output_dir,
+                )
+                .await
+            }),
+        ));
     }
 
-    let mut exported_count = 0;
-    let mut failed = false;
+    let mut successes: Vec<(String, String)> = Vec::new();
+    let mut failed_names: Vec<String> = Vec::new();
 
-    for handle in handles {
+    for (name, handle) in handles {
         match handle.await {
-            Ok(Ok(_)) => {
-                exported_count += 1;
-            }
-            Ok(Err(_)) => failed = true, // skopeo failed
-            Err(_) => failed = true,     // task panicked/cancelled
+            Ok(Ok((local_str, output_path))) => successes.push((local_str, output_path)),
+            Ok(Err(_)) => failed_names.push(name), // skopeo failed
+            Err(_) => failed_names.push(name),     // task panicked/cancelled
         }
     }
 
-    drop(multi);
+    output::finish_multi(multi);
 
-    if failed {
+    successes.sort();
+    for (local_str, output_path) in &successes {
+        println!("+ {} -> {}", local_str, output_path);
+    }
+    failed_names.sort();
+    for name in &failed_names {
+        println!("- {} failed", name);
+    }
+
+    if !failed_names.is_empty() {
         bail!("Exporting completed with errors.");
     }
 
-    println!("Exported {} images.", exported_count);
+    println!("Exported {} images.", successes.len());
     Ok(())
 }

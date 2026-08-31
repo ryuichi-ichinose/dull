@@ -4,7 +4,7 @@ use crate::cli::{BuildArgs, LogsMode};
 use crate::config::{ProjectContext, save_state};
 use crate::engine::{BuildOptions, BuildahEngine};
 use crate::image_reference::ImageReference;
-use crate::output::multi_println;
+use crate::output::{self, multi_println};
 use anyhow::{Context, Result, bail};
 use futures::future::{FutureExt, Shared};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -51,6 +51,17 @@ pub async fn run_build(
         .jobs
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, |n| n.get()));
 
+    let mut target_names: Vec<&String> = plan.tasks.iter().map(|t| &t.name).collect();
+    target_names.sort();
+    println!(
+        "Building {} images: {}",
+        target_names.len(),
+        target_names
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     println!("Starting build with max concurrency: {}", concurrency);
 
     let timestamp = std::time::SystemTime::now()
@@ -185,17 +196,28 @@ pub async fn run_build(
     }
 
     let total_count = task_futures.len();
+    let mut successes: Vec<(String, ImageReference)> = Vec::new();
     let mut failed_names: Vec<String> = Vec::new();
     for (name, fut) in task_futures {
         match fut.await {
             Ok(completed_ref) => {
+                successes.push((name.clone(), completed_ref.clone()));
                 ctx.state.images.insert(name, completed_ref);
             }
             Err(_) => failed_names.push(name),
         }
     }
 
-    drop(multi);
+    output::finish_multi(multi);
+
+    successes.sort_by(|a, b| a.0.cmp(&b.0));
+    for (_, reference) in &successes {
+        println!("+ {}", reference.to_tag_string());
+    }
+    failed_names.sort();
+    for name in &failed_names {
+        println!("- {} failed", name);
+    }
 
     if let Some(mode) = &args.logs {
         let names_to_dump: Vec<&String> = match mode {
