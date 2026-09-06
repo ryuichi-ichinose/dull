@@ -17,7 +17,14 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Semaphore;
 use tokio::task::AbortHandle;
 
-type SharedTaskFuture = Shared<futures::future::BoxFuture<'static, Result<ImageReference, String>>>;
+#[derive(Clone)]
+enum BuildFailure {
+    Failed,
+    Skipped(String),
+}
+
+type SharedTaskFuture =
+    Shared<futures::future::BoxFuture<'static, Result<ImageReference, BuildFailure>>>;
 
 pub async fn run_build(
     engine: Arc<BuildahEngine>,
@@ -76,6 +83,8 @@ pub async fn run_build(
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let multi = Arc::new(MultiProgress::new());
     let abort_handles: Arc<Mutex<Vec<AbortHandle>>> = Arc::new(Mutex::new(Vec::new()));
+    let logger_handles: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>> =
+        Arc::new(Mutex::new(Vec::new()));
     let aborting = Arc::new(AtomicBool::new(false));
     let keep_going = args.keep_going;
     let mut task_futures: HashMap<String, SharedTaskFuture> = HashMap::new();
@@ -103,6 +112,7 @@ pub async fn run_build(
         let semaphore = Arc::clone(&semaphore);
         let multi = Arc::clone(&multi);
         let abort_handles_for_task = Arc::clone(&abort_handles);
+        let logger_handles_for_task = Arc::clone(&logger_handles);
         let aborting = Arc::clone(&aborting);
         let root = base_root.clone();
 
@@ -110,21 +120,29 @@ pub async fn run_build(
             .dependencies
             .iter()
             .map(|d| {
-                task_futures
-                    .get(d)
-                    .expect("Dependency missing in graph")
-                    .clone()
+                (
+                    d.clone(),
+                    task_futures
+                        .get(d)
+                        .expect("Dependency missing in graph")
+                        .clone(),
+                )
             })
             .collect();
 
         let name_key = name.clone();
 
         let task_future = tokio::spawn(async move {
-            for dep in dep_futures {
-                dep.await.map_err(|e| format!("Dependency failed: {}", e))?;
+            for (dep_name, dep) in dep_futures {
+                dep.await.map_err(|_| {
+                    BuildFailure::Skipped(format!("dependency '{}' failed", dep_name))
+                })?;
             }
 
-            let _permit = semaphore.acquire().await.map_err(|_| "Semaphore closed")?;
+            let _permit = semaphore
+                .acquire()
+                .await
+                .map_err(|_| BuildFailure::Skipped("Semaphore closed".to_string()))?;
 
             let pb = multi.add(ProgressBar::new_spinner());
             pb.set_style(
@@ -138,7 +156,7 @@ pub async fn run_build(
             let (log_tx, mut log_rx) = tokio::sync::mpsc::channel::<String>(100);
             let pb_clone = pb.clone();
 
-            tokio::spawn(async move {
+            let logger_handle = tokio::spawn(async move {
                 if let Ok(mut log_file) = tokio::fs::File::create(&log_path).await {
                     while let Some(line) = log_rx.recv().await {
                         pb_clone.set_message(line.clone());
@@ -151,6 +169,7 @@ pub async fn run_build(
                     }
                 }
             });
+            logger_handles_for_task.lock().unwrap().push(logger_handle);
 
             let opts = BuildOptions {
                 dockerfile_path: &root.join(&profile.path),
@@ -176,7 +195,7 @@ pub async fn run_build(
                     }
                     multi_println(&multi, format!("Error building {}:\n{}", reference.name, e));
                     pb.abandon_with_message(format!("{} failed", reference.name));
-                    Err(e.to_string())
+                    Err(BuildFailure::Failed)
                 }
             }
         });
@@ -189,23 +208,39 @@ pub async fn run_build(
         task_futures.insert(
             name_key,
             task_future
-                .map(|r| r.unwrap_or_else(|e| Err(e.to_string())))
+                .map(|r| {
+                    r.unwrap_or_else(|join_err| {
+                        if join_err.is_cancelled() {
+                            Err(BuildFailure::Skipped(
+                                "aborted after an earlier failure".to_string(),
+                            ))
+                        } else {
+                            Err(BuildFailure::Failed)
+                        }
+                    })
+                })
                 .boxed()
                 .shared(),
         );
     }
 
-    let total_count = task_futures.len();
     let mut successes: Vec<(String, ImageReference)> = Vec::new();
     let mut failed_names: Vec<String> = Vec::new();
+    let mut skipped: Vec<(String, String)> = Vec::new();
     for (name, fut) in task_futures {
         match fut.await {
             Ok(completed_ref) => {
                 successes.push((name.clone(), completed_ref.clone()));
                 ctx.state.images.insert(name, completed_ref);
             }
-            Err(_) => failed_names.push(name),
+            Err(BuildFailure::Failed) => failed_names.push(name),
+            Err(BuildFailure::Skipped(reason)) => skipped.push((name, reason)),
         }
+    }
+
+    let pending_loggers: Vec<_> = logger_handles.lock().unwrap().drain(..).collect();
+    for handle in pending_loggers {
+        let _ = handle.await;
     }
 
     output::finish_multi(multi);
@@ -217,6 +252,10 @@ pub async fn run_build(
     failed_names.sort();
     for name in &failed_names {
         println!("- {} failed", name);
+    }
+    skipped.sort_by(|a, b| a.0.cmp(&b.0));
+    for (name, reason) in &skipped {
+        println!("- {} skipped ({})", name, reason);
     }
 
     if let Some(mode) = &args.logs {
@@ -245,11 +284,11 @@ pub async fn run_build(
         .retain(|k, _| ctx.config.images.contains_key(k));
     save_state(&ctx)?;
 
-    if !failed_names.is_empty() {
+    if !failed_names.is_empty() || !skipped.is_empty() {
         bail!("Build completed with errors.");
     }
 
-    println!("Built {} images.", total_count - failed_names.len());
+    println!("Built {} images.", successes.len());
 
     Ok(())
 }
