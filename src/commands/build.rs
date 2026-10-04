@@ -87,6 +87,7 @@ pub async fn run_build(
         Arc::new(Mutex::new(Vec::new()));
     let aborting = Arc::new(AtomicBool::new(false));
     let keep_going = args.keep_going;
+    let ignore_lock = args.ignore_lock;
     let mut task_futures: HashMap<String, SharedTaskFuture> = HashMap::new();
     let mut log_paths: HashMap<String, PathBuf> = HashMap::new();
 
@@ -176,6 +177,7 @@ pub async fn run_build(
                 context_dir: &root.join(&profile.context),
                 build_args: &profile.args,
                 secrets: &profile.secrets,
+                ignore_lock,
             };
 
             match engine.build(&reference, opts, Some(log_tx)).await {

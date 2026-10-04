@@ -19,6 +19,7 @@ pub struct BuildOptions<'a> {
     pub context_dir: &'a Path,
     pub build_args: &'a std::collections::BTreeMap<String, String>,
     pub secrets: &'a std::collections::BTreeMap<String, SecretSource>,
+    pub ignore_lock: bool,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -101,14 +102,14 @@ impl BuildahEngine {
         let iid_file = NamedTempFile::new_in(&self.ctx.paths.tmp_dir)?;
         let iid_path = iid_file.path().to_str().unwrap();
 
+        let pull = if opts.ignore_lock {
+            "--pull=missing"
+        } else {
+            "--pull=never"
+        };
         let mut cmd = self.command("bud");
-        cmd.kill_on_drop(true).args([
-            "--format=oci",
-            "--layers=true",
-            "--pull=never",
-            "--iidfile",
-            iid_path,
-        ]);
+        cmd.kill_on_drop(true)
+            .args(["--format=oci", "--layers=true", pull, "--iidfile", iid_path]);
 
         for (k, v) in opts.build_args {
             cmd.arg("--build-arg").arg(format!("{}={}", k, v));

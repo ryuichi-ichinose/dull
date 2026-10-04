@@ -154,6 +154,10 @@ pub struct BuildArgs {
     /// completion and report all failures at the end
     #[arg(long)]
     pub keep_going: bool,
+    /// Pull base images missing from local storage by name, instead of
+    /// requiring them to have been fetched from dull.lock first
+    #[arg(long)]
+    pub ignore_lock: bool,
 }
 
 #[derive(Args)]
