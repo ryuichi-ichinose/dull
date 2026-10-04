@@ -1,0 +1,5 @@
+# In a real project, commit dull.toml and dull.lock. They are ignored here
+# only because this example generates them while you follow the steps.
+.dull/*
+dull.toml
+dull.lock

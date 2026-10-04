@@ -1,0 +1,4 @@
+FROM quay.io/fedora/python-312:latest
+
+COPY app.py /app/app.py
+CMD ["python", "/app/app.py"]
