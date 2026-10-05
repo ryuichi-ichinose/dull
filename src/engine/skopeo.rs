@@ -1,5 +1,5 @@
 use crate::config::ProjectContext;
-use crate::engine::{ProcessGroupGuard, run_checked};
+use crate::engine::{ChildGuard, run_checked};
 use crate::image_reference::ImageReference;
 use anyhow::{Result, bail};
 use std::fs;
@@ -41,9 +41,6 @@ impl SkopeoEngine {
         unsafe {
             cmd.pre_exec(|| {
                 libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-                if libc::setpgid(0, 0) != 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
                 Ok(())
             });
         }
@@ -71,13 +68,12 @@ impl SkopeoEngine {
         cmd.arg(registry_url);
 
         let mut child = cmd
-            .kill_on_drop(true)
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()?;
 
-        let _guard = ProcessGroupGuard::new(&child);
+        let _guard = ChildGuard::new(&child);
         let status = child.wait().await?;
 
         if !status.success() {
@@ -104,7 +100,7 @@ impl SkopeoEngine {
         let dest_str = destination.docker_tag_url();
 
         let mut cmd = self.command();
-        cmd.kill_on_drop(true).arg("copy");
+        cmd.arg("copy");
 
         if insecure {
             cmd.arg("--dest-tls-verify=false");
@@ -130,7 +126,7 @@ impl SkopeoEngine {
                 .stderr(Stdio::inherit())
                 .spawn()?;
 
-            let _guard = ProcessGroupGuard::new(&child);
+            let _guard = ChildGuard::new(&child);
             let status = child.wait().await?;
 
             if !status.success() {
@@ -155,7 +151,7 @@ impl SkopeoEngine {
         let digest_path = digest_file.path().to_str().unwrap();
 
         let mut cmd = self.command();
-        cmd.kill_on_drop(true).arg("copy");
+        cmd.arg("copy");
 
         if insecure {
             cmd.arg("--src-tls-verify=false");
@@ -181,7 +177,7 @@ impl SkopeoEngine {
         let dest = format!("oci:{}", dest_dir.display());
 
         let mut cmd = self.command();
-        cmd.kill_on_drop(true).arg("copy").arg(&src).arg(&dest);
+        cmd.arg("copy").arg(&src).arg(&dest);
 
         run_checked(cmd, "Failed to export to OCI format").await?;
 

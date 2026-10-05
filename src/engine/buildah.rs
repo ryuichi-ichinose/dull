@@ -1,5 +1,5 @@
 use crate::config::{ProjectContext, SecretSource};
-use crate::engine::{ProcessGroupGuard, run_checked};
+use crate::engine::{ChildGuard, run_checked};
 use crate::image_reference::ImageReference;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -68,9 +68,6 @@ impl BuildahEngine {
         unsafe {
             cmd.pre_exec(|| {
                 libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-                if libc::setpgid(0, 0) != 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
                 Ok(())
             });
         }
@@ -108,8 +105,7 @@ impl BuildahEngine {
             "--pull=never"
         };
         let mut cmd = self.command("bud");
-        cmd.kill_on_drop(true)
-            .args(["--format=oci", "--layers=true", pull, "--iidfile", iid_path]);
+        cmd.args(["--format=oci", "--layers=true", pull, "--iidfile", iid_path]);
 
         for (k, v) in opts.build_args {
             cmd.arg("--build-arg").arg(format!("{}={}", k, v));
@@ -136,7 +132,7 @@ impl BuildahEngine {
             .stderr(Stdio::piped())
             .spawn()?;
 
-        let _guard = ProcessGroupGuard::new(&child);
+        let _guard = ChildGuard::new(&child);
 
         let mut error_buffer: VecDeque<String> = VecDeque::new();
         const ERROR_BUFFER_LINES: usize = 20;
@@ -265,7 +261,7 @@ impl BuildahEngine {
             cmd.stdout(Stdio::null()).stderr(Stdio::null());
             let mut child = cmd.spawn()?;
 
-            let _guard = ProcessGroupGuard::new(&child);
+            let _guard = ChildGuard::new(&child);
             child.wait().await?;
         }
 
@@ -276,7 +272,7 @@ impl BuildahEngine {
             cmd.stdout(Stdio::null()).stderr(Stdio::null());
             let mut child = cmd.spawn()?;
 
-            let _guard = ProcessGroupGuard::new(&child);
+            let _guard = ChildGuard::new(&child);
             child.wait().await?;
         }
 
@@ -293,7 +289,7 @@ impl BuildahEngine {
         cmd.stdout(Stdio::null()).stderr(Stdio::null());
         let mut child = cmd.spawn()?;
 
-        let _guard = ProcessGroupGuard::new(&child);
+        let _guard = ChildGuard::new(&child);
         let status = child.wait().await?;
 
         if !status.success() {

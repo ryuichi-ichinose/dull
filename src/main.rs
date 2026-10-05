@@ -14,8 +14,16 @@ use clap::Parser;
 use std::sync::Arc;
 use tokio::signal::unix::{SignalKind, signal};
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    let runtime = tokio::runtime::Runtime::new()?;
+    let result = runtime.block_on(run());
+    // Dropping the runtime drops the in-flight work, which queues the SIGKILL escalations.
+    drop(runtime);
+    engine::finish_pending_kills();
+    result
+}
+
+async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     // `init` creates dull.toml itself, so it must run before any context exists.
