@@ -91,7 +91,7 @@ pub async fn run_images(
             if let Some(names) = &local_img.names {
                 for name_str in names {
                     if name_str != "<none>" && !tracked_fqins.contains(name_str) {
-                        let parsed = parse_oci_reference(name_str);
+                        let parsed = parse_oci_reference(name_str).ok();
 
                         let registry = parsed
                             .as_ref()

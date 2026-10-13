@@ -3,7 +3,7 @@ use crate::config::{ProjectContext, save_lock};
 use crate::engine::SkopeoEngine;
 use crate::image_reference::{ImageReference, parse_oci_reference};
 use crate::output::{self, multi_println};
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -84,7 +84,7 @@ pub async fn run_lock(
     let mut parsed_deps = BTreeMap::new();
     for dep_str in &ctx.config.dependencies {
         let reference = parse_oci_reference(dep_str)
-            .with_context(|| format!("Failed to parse dependency: {}", dep_str))?;
+            .map_err(|e| anyhow::anyhow!("Failed to parse dependency '{}': {}", dep_str, e))?;
 
         if reference.registry.is_none() {
             bail!(

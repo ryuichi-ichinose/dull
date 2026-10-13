@@ -72,9 +72,9 @@ pub fn shorten_digest(digest: &str) -> &str {
     &naked[..12.min(naked.len())]
 }
 
-pub fn parse_oci_reference(s: &str) -> Option<ImageReference> {
+pub fn parse_oci_reference(s: &str) -> Result<ImageReference, String> {
     if s.is_empty() {
-        return None;
+        return Err("reference is empty".to_string());
     }
 
     let mut remainder = s;
@@ -95,8 +95,7 @@ pub fn parse_oci_reference(s: &str) -> Option<ImageReference> {
 
     if let Some(idx) = name_part.find(':') {
         tag = Some(name_part[idx + 1..].to_string());
-        let tag_start =
-            last_slash_idx.unwrap_or(0) + (if last_slash_idx.is_some() { 1 } else { 0 }) + idx;
+        let tag_start = last_slash_idx.map_or(0, |i| i + 1) + idx;
         remainder = &remainder[..tag_start];
     }
 
@@ -114,11 +113,13 @@ pub fn parse_oci_reference(s: &str) -> Option<ImageReference> {
     };
 
     if parts.is_empty() || parts.iter().any(|p| p.is_empty()) {
-        return None;
+        return Err(
+            "image name is empty or has an empty path segment (e.g. a double slash)".to_string(),
+        );
     }
     let name = parts.join("/");
 
-    Some(ImageReference {
+    Ok(ImageReference {
         registry,
         name,
         tag,
