@@ -173,7 +173,7 @@ impl SkopeoEngine {
         local_reference: &ImageReference,
         dest_dir: &Path,
     ) -> Result<()> {
-        let src = local_reference.storage_tag_url();
+        let src = local_reference.storage_full_url();
         let dest = format!("oci:{}", dest_dir.display());
 
         let mut cmd = self.command();
