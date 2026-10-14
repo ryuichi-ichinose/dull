@@ -17,5 +17,7 @@ isolated storage. Credentials are managed by
 ## Options
 
 - `--username`, `-u <user>` — Username for the registry.
-- `--password`, `-p <pass>` — Password for the registry.
+- `--password`, `-p <pass>` — Password for the registry. Conflicts with `--password-stdin`.
+- `--password-stdin` — Read the password from stdin instead of passing it on the
+  command line.
 - `--insecure` — Allow HTTP / untrusted TLS certificates for this registry.
