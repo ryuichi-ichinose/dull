@@ -100,8 +100,11 @@ pub struct LoginArgs {
     pub registry: String,
     #[arg(short, long)]
     pub username: Option<String>,
-    #[arg(short, long)]
+    #[arg(short, long, conflicts_with = "password_stdin")]
     pub password: Option<String>,
+    /// Read the password from stdin instead of passing it on the command line
+    #[arg(long)]
+    pub password_stdin: bool,
     /// Allow HTTP / untrusted TLS certificates for this registry
     #[arg(long)]
     pub insecure: bool,

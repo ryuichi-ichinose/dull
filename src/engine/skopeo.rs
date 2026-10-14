@@ -7,6 +7,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Stdio;
 use tempfile::NamedTempFile;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command as TokioCommand;
 
 #[derive(Debug)]
@@ -59,21 +60,35 @@ impl SkopeoEngine {
         if let Some(u) = auth.username {
             cmd.arg("-u").arg(u);
         }
-        if let Some(p) = auth.password {
-            cmd.arg("-p").arg(p);
+        if auth.password.is_some() {
+            cmd.arg("--password-stdin");
         }
         if insecure {
             cmd.arg("--tls-verify=false");
         }
         cmd.arg(registry_url);
 
+        let stdin_mode = if auth.password.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::inherit()
+        };
+
         let mut child = cmd
-            .stdin(Stdio::inherit())
+            .stdin(stdin_mode)
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()?;
 
         let _guard = ChildGuard::new(&child);
+
+        if let Some(password) = auth.password {
+            let mut stdin = child.stdin.take().expect("stdin was piped");
+            stdin.write_all(password.as_bytes()).await?;
+            stdin.write_all(b"\n").await?;
+            drop(stdin);
+        }
+
         let status = child.wait().await?;
 
         if !status.success() {
