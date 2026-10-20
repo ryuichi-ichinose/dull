@@ -65,9 +65,13 @@ impl BuildahEngine {
             cmd.arg(subcmd);
         }
 
+        let parent_pid = std::process::id() as libc::pid_t;
         unsafe {
-            cmd.pre_exec(|| {
+            cmd.pre_exec(move || {
                 libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                if libc::getppid() != parent_pid {
+                    libc::raise(libc::SIGTERM);
+                }
                 Ok(())
             });
         }
@@ -79,9 +83,13 @@ impl BuildahEngine {
         cmd.env("CONTAINERS_STORAGE_CONF", &self.ctx.paths.storage_conf)
             .env("TMPDIR", &self.ctx.paths.tmp_dir);
 
+        let parent_pid = std::process::id() as libc::pid_t;
         unsafe {
-            cmd.pre_exec(|| {
+            cmd.pre_exec(move || {
                 libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                if libc::getppid() != parent_pid {
+                    libc::raise(libc::SIGTERM);
+                }
                 Ok(())
             });
         }
