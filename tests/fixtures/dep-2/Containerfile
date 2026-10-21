@@ -1,0 +1,2 @@
+FROM localhost/base:latest
+COPY dull.txt /dull.txt
