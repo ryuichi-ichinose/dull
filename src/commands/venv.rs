@@ -44,6 +44,7 @@ pub fn run_venv(args: VenvArgs) -> Result<()> {
         println!("Initialized .dull/storage.conf (using the host's global container storage)");
     } else {
         fs::create_dir_all(&paths.storage_dir)?;
+        fs::create_dir_all(&paths.run_dir)?;
         apply_selinux_label(&paths.storage_dir)?;
 
         if is_selinux_enabled() {
@@ -73,6 +74,7 @@ pub fn run_venv(args: VenvArgs) -> Result<()> {
             "[storage]\n\
              driver = \"{driver}\"\n\
              graphroot = \"{graphroot}\"\n\
+             runroot = \"{runroot}\"\n\
              \n\
              [storage.options]\n\
              pull_options = {{convert_images = \"{convert_images}\", enable_partial_images = \"{enable_partial_images}\", use_hard_links = \"{use_hard_links}\"}}\n\
@@ -81,6 +83,7 @@ pub fn run_venv(args: VenvArgs) -> Result<()> {
              {overlay_options}",
             driver = args.driver,
             graphroot = paths.storage_dir.display(),
+            runroot = paths.run_dir.display(),
             convert_images = args.convert_images,
             enable_partial_images = args.enable_partial_images,
             use_hard_links = args.use_hard_links,
