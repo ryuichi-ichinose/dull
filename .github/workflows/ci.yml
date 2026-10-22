@@ -20,7 +20,13 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: fedora:43
-      options: --privileged # Sorry.
+      # Sorry.
+      options: >-
+        --privileged  
+        --cgroupns=host
+        --security-opt seccomp=unconfined
+        --security-opt label=disable
+        --device /dev/fuse:rw
     environment: ci-approval
     steps:
       - name: Install git
