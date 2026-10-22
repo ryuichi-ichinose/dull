@@ -18,6 +18,11 @@ new_scratch_dir() {
 }
 
 remove_scratch_dir() {
+    # runroot lives outside the project dir entirely (see venv's storage.conf),
+    # so deleting the project dir alone would leak it.
+    local runroot
+    runroot="$(grep '^runroot' "$1/.dull/containers/storage.conf" 2>/dev/null | cut -d'"' -f2)"
+    [ -n "$runroot" ] && rm -rf "$runroot"
     buildah unshare rm -rf "$1" 2>/dev/null || rm -rf "$1"
 }
 

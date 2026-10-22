@@ -1,13 +1,35 @@
 use crate::image_reference::ImageReference;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs::{self, File};
 use std::io::Write;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process;
 use tempfile::Builder;
+
+fn default_runroot_base() -> PathBuf {
+    let euid = unsafe { libc::geteuid() };
+    if euid == 0 {
+        return PathBuf::from("/run/containers/storage");
+    }
+    match env::var("XDG_RUNTIME_DIR") {
+        Ok(dir) => PathBuf::from(dir).join("containers"),
+        Err(_) => PathBuf::from(format!("/run/user/{euid}/containers")),
+    }
+}
+
+/// Keeps each project's runroot on the usual tmpfs-backed runroot path
+/// (instead of inside the project dir, which may not even be tmpfs),
+/// namespaced by the project root's own path so projects never collide.
+fn project_run_dir(root: &Path) -> PathBuf {
+    let digest = Sha256::digest(root.as_os_str().as_bytes());
+    let hash: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    default_runroot_base().join("dull").join(&hash[..12])
+}
 
 fn default_tag() -> String {
     "latest".to_string()
@@ -83,12 +105,14 @@ pub struct ProjectPaths {
     pub storage_dir: PathBuf,
     pub storage_conf: PathBuf,
     pub tmp_dir: PathBuf,
+    pub run_dir: PathBuf,
 }
 
 impl ProjectPaths {
     pub fn new(root: PathBuf) -> Self {
         let dull_dir = root.join(".dull");
         let containers_dir = dull_dir.join("containers");
+        let run_dir = project_run_dir(&root);
 
         Self {
             config_file: root.join("dull.toml"),
@@ -98,6 +122,7 @@ impl ProjectPaths {
             storage_dir: containers_dir.join("storage"),
             storage_conf: containers_dir.join("storage.conf"),
             tmp_dir: containers_dir.join("tmp"),
+            run_dir,
             containers_dir,
             dull_dir,
             root,
