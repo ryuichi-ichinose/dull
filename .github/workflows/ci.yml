@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    environment: ci-approval
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  test:
+    name: bats test suite (Fedora via Lima)
+    runs-on: ubuntu-latest
+    environment: ci-approval
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lima-vm/lima-actions/setup@v1
+        id: lima
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/lima
+          key: lima-${{ steps.lima.outputs.version }}
+
+      - name: Start the Fedora VM
+        run: limactl start --plain --name=default --cpus=2 --memory=6 template://fedora
+
+      - name: Copy the repo into the VM
+        run: rsync -a -e ssh . lima-default:/tmp/dull
+
+      - name: Install system packages
+        run: ssh lima-default 'sudo dnf install -y gcc buildah skopeo podman bats jq curl python3'
+
+      - name: Install Rust
+        run: ssh lima-default 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal'
+
+      - name: Require python3.11+ #tomllib is used by tests/fixtures/toml2json.py
+        run: |
+          ssh lima-default 'python3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"' \
+            || { echo "python3 >= 3.11 required"; exit 1; }
+
+      - name: cargo build
+        run: ssh lima-default 'source "$HOME/.cargo/env" && cd /tmp/dull && cargo build'
+
+      - name: Run the bats suite in dependency order
+        run: |
+          ssh lima-default 'cd /tmp/dull && bats tests/init.bats tests/scan.bats tests/venv.bats tests/shell.bats \
+            tests/lock.bats tests/fetch.bats tests/build.bats tests/images.bats \
+            tests/push.bats tests/export.bats tests/rmi.bats'
