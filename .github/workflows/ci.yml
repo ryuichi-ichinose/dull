@@ -18,28 +18,24 @@ jobs:
   test:
     name: bats test suite
     runs-on: ubuntu-latest
+    container:
+      image: fedora:43
+      options: --privileged # Sorry.
     environment: ci-approval
     steps:
+      - name: Install git
+        run: dnf install -y git
+
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y buildah skopeo podman bats jq curl
+        run: dnf install -y gcc buildah skopeo podman bats jq curl python3
 
       - name: Require python3.11+ #tomllib is used by tests/fixtures/toml2json.py
         run: |
           python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
             || { echo "python3 >= 3.11 required"; python3 --version; exit 1; }
-
-      - name: Allow rootless buildah/podman (subuid/subgid)
-        run: |
-          grep -q "^$(whoami):" /etc/subuid || echo "$(whoami):100000:65536" | sudo tee -a /etc/subuid
-          grep -q "^$(whoami):" /etc/subgid || echo "$(whoami):100000:65536" | sudo tee -a /etc/subgid
-
-      - name: Allow unprivileged user namespaces
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - run: cargo build
 
