@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    environment: ci-approval
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  test:
+    name: bats test suite
+    runs-on: ubuntu-latest
+    environment: ci-approval
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y buildah skopeo podman bats jq curl
+
+      - name: Require python3.11+ #tomllib is used by tests/fixtures/toml2json.py
+        run: |
+          python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
+            || { echo "python3 >= 3.11 required"; python3 --version; exit 1; }
+
+      - name: Allow rootless buildah/podman (subuid/subgid)
+        run: |
+          grep -q "^$(whoami):" /etc/subuid || echo "$(whoami):100000:65536" | sudo tee -a /etc/subuid
+          grep -q "^$(whoami):" /etc/subgid || echo "$(whoami):100000:65536" | sudo tee -a /etc/subgid
+
+      - run: cargo build
+
+      - name: Run the bats suite in dependency order
+        run: |
+          bats tests/init.bats tests/scan.bats tests/venv.bats tests/shell.bats \
+            tests/lock.bats tests/fetch.bats tests/build.bats tests/images.bats \
+            tests/push.bats tests/export.bats tests/rmi.bats
