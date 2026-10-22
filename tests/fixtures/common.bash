@@ -23,7 +23,14 @@ remove_scratch_dir() {
     local runroot
     runroot="$(grep '^runroot' "$1/.dull/containers/storage.conf" 2>/dev/null | cut -d'"' -f2)"
     [ -n "$runroot" ] && rm -rf "$runroot"
-    buildah unshare rm -rf "$1" 2>/dev/null || rm -rf "$1"
+
+    if [ "$(id -u)" -eq 0 ]; then
+        # unmout if root
+        CONTAINERS_STORAGE_CONF="$1/.dull/containers/storage.conf" buildah umount --all >/dev/null 2>&1 || true
+        rm -rf "$1"
+    else
+        buildah unshare rm -rf "$1" 2>/dev/null || rm -rf "$1"
+    fi
 }
 
 # buildah/skopeo honor these directly, the same way dull invokes them, so
