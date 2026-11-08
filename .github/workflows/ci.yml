@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    environment: ci-approval
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  test:
+    name: bats test suite
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:43
+      # Sorry.
+      options: >-
+        --privileged  
+        --cgroupns=host
+        --security-opt seccomp=unconfined
+        --security-opt label=disable
+        --device /dev/fuse:rw
+    environment: ci-approval
+    steps:
+      - name: Install git
+        run: dnf install -y git
+
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install
+        run: dnf install -y gcc buildah skopeo podman bats jq curl python3
+
+      - name: Require python3.11+ #tomllib is used by tests/fixtures/toml2json.py
+        run: |
+          python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' \
+            || { echo "python3 >= 3.11 required"; python3 --version; exit 1; }
+
+      - run: cargo build
+
+      - name: Run the bats suite in dependency order
+        run: |
+          bats tests/init.bats tests/scan.bats tests/venv.bats tests/shell.bats \
+            tests/lock.bats tests/fetch.bats tests/build.bats tests/images.bats \
+            tests/push.bats tests/export.bats tests/rmi.bats
