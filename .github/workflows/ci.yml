@@ -18,7 +18,7 @@ jobs:
   test:
     name: bats test suite (Fedora via Lima)
     runs-on: ubuntu-latest
-    environment: ci-approval
+    needs: fmt
     steps:
       - uses: actions/checkout@v4
       - uses: lima-vm/lima-actions/setup@v1
