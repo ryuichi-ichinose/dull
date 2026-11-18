@@ -14,7 +14,7 @@ $ dull scan                      # register base, app1, app2, app3 as [images.X]
 
 Then edit `dull.toml`:
 
-1. Set `dependencies` (the first line, written by `scan` as `dependencies = []`):
+1. Set `dependencies` (the first line, written by `init` as `dependencies = []`):
 
    ```toml
    dependencies = ["quay.io/fedora/python-312:latest", "quay.io/libpod/registry:2.8.2"]
@@ -33,7 +33,7 @@ Then continue:
 ```console
 $ dull lock                      # resolve python-312 and the registry image to digests in dull.lock
 $ dull fetch                     # pull that digest into project storage
-$ dull build -a                  # build all four images
+$ dull build --all               # build all four images
 ```
 
 Check the result:
