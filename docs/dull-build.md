@@ -19,12 +19,11 @@ Each built image is tagged `localhost/<name>:<local_tag>`, where `<name>` is
 the `[images.X]` key and `<local_tag>` is that image's `local_tag` in
 `dull.toml` (or `--tag`, for the whole run).
 
-`--pull=never` only stops build from pulling on its own; it does not check
-that a `FROM` target was actually resolved through `dependencies` and `dull
-lock`/`dull fetch`. If something with that name already sits in project
-storage — a leftover from an earlier experiment, a manual `buildah pull`, a
-prior build — build happily uses it, pinned or not. For a clean build, wipe
-the project's storage first with `dull rmi --all`.
+`--pull=never` stops build from pulling on its own, and before building
+anything, build also checks project storage for tagged images it doesn't
+recognize: anything that isn't one it built itself (`localhost/*`) or one
+`dull.lock` tracks is an error. Pass `--ignore-lock` to skip that check and
+build anyway.
 
 Concurrent invocations against the same project are serialized by a
 `.dull/build.lock` file lock.

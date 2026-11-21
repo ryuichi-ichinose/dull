@@ -42,6 +42,7 @@ teardown_file() {
 
 setup() {
     DULL=$(cat "$BATS_FILE_TMPDIR/dull_bin")
+    REGISTRY_PORT=$(cat "$BATS_FILE_TMPDIR/registry_port")
     SCRATCH=$(cat "$BATS_FILE_TMPDIR/scratch")
     cd "$SCRATCH"
 }
@@ -91,4 +92,21 @@ EOF
     done
     env $(project_storage_env "$SCRATCH") skopeo inspect \
         "containers-storage:localhost/base:custom" >/dev/null
+}
+
+@test "build refuses to run if storage has a tagged image build didn't produce and dull.lock doesn't track" {
+    # base-b is in the fixture registry but was never added to dependencies/dull.lock.
+    env $(project_storage_env "$SCRATCH") buildah pull --tls-verify=false \
+        "localhost:$REGISTRY_PORT/base-b:latest" >/dev/null
+
+    run "$DULL" build --all
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"not recorded in dull.lock"* ]]
+    [[ "$output" == *"localhost:$REGISTRY_PORT/base-b:latest"* ]]
+
+    run "$DULL" build --all --ignore-lock
+    [ "$status" -eq 0 ]
+
+    env $(project_storage_env "$SCRATCH") buildah rmi \
+        "localhost:$REGISTRY_PORT/base-b:latest" >/dev/null
 }

@@ -33,6 +33,28 @@ pub async fn run_build(
 ) -> Result<()> {
     let _build_lock = BuildLock::acquire(&ctx.paths.build_lock_file)?;
 
+    if !args.ignore_lock {
+        let mut untracked: BTreeSet<String> = BTreeSet::new();
+        for image in engine.list_images().await? {
+            for name in image.names.into_iter().flatten() {
+                if name.starts_with("localhost/") || name.contains("<none>") {
+                    continue;
+                }
+                if !ctx.lock.images.contains_key(&name) {
+                    untracked.insert(name);
+                }
+            }
+        }
+        if !untracked.is_empty() {
+            bail!(
+                "Project storage has tagged images not recorded in dull.lock: {}. \
+                 Run 'dull rmi' to remove them, 'dull lock' to track them, \
+                 or build with --ignore-lock to skip this check.",
+                untracked.into_iter().collect::<Vec<_>>().join(", ")
+            );
+        }
+    }
+
     let targets: BTreeSet<String> = if args.all {
         ctx.config.images.keys().cloned().collect()
     } else if let Some(group_name) = &args.group {
