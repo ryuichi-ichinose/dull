@@ -55,10 +55,10 @@ that storage, not the shared one.
   pulls exactly those digests. So `lock → fetch` is keyed by the digests in `dull.lock`.
 - `dull build` runs with **`--pull=never`** by default. It never pulls on its own,
   so it only sees base images that `dull fetch` already placed in project storage.
-  A missing base is an error, not a silent pull — but it doesn't check that
-  what's there came from `dull fetch`. Anything already sitting in project
-  storage under that name is used as-is. Run `dull rmi --all` first if you
-  want a clean build.
+  A missing base is an error, not a silent pull. `dull build` also refuses to run
+  if project storage has a tagged image that's neither one it built itself
+  (`localhost/*`) nor one `dull.lock` tracks; pass `--ignore-lock` to skip that
+  check.
 - `dull build` records each built image's digest in `.dull/dull_state`, and
   `dull push` pushes from those digests. So `build → push` is keyed by the digests
   in `dull_state`.
